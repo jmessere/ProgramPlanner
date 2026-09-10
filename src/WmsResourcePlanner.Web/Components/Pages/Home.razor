@@ -1,7 +1,94 @@
-﻿@page "/"
+@page "/"
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
+@inject WmsResourcePlanner.Application.Services.CapacityService CapacityService
+@inject WmsResourcePlanner.Application.Services.GapAnalysisService GapService
+@using Microsoft.EntityFrameworkCore
+@using WmsResourcePlanner.Domain.Entities
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Overview</PageTitle>
+<h1>Overview</h1>
 
-<h1>Hello, world!</h1>
+@if (_loading)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <div class="kpi-cards">
+        <div class="kpi-card"><div class="value">@_activePeople</div><div class="label">Active People</div></div>
+        <div class="kpi-card"><div class="value">@_activeTeams</div><div class="label">Active Teams</div></div>
+        <div class="kpi-card"><div class="value">@_totalPlannedFte.ToString("0.##")</div><div class="label">Total Planned FTE</div></div>
+        <div class="kpi-card"><div class="value">@_openFte.ToString("0.##")</div><div class="label">Open FTE</div></div>
+        <div class="kpi-card"><div class="value">@_overallocatedCount</div><div class="label">Overallocated People</div></div>
+        <div class="kpi-card"><div class="value">@_activeTemplates</div><div class="label">Active Templates</div></div>
+        <div class="kpi-card"><div class="value">@_activeRolloutTeams</div><div class="label">Active Rollout Teams</div></div>
+    </div>
 
-Welcome to your new app.
+    <h2>Largest Open Demand by Role (current horizon)</h2>
+    <table class="data-grid">
+        <thead><tr><th>Role</th><th>Open FTE</th></tr></thead>
+        <tbody>
+            @foreach (var g in _openByRole)
+            {
+                <tr><td>@g.Role</td><td>@g.Fte.ToString("0.##")</td></tr>
+            }
+        </tbody>
+    </table>
+
+    <h2>Overallocated People</h2>
+    <table class="data-grid">
+        <thead><tr><th>Person</th><th>Month</th><th>Allocated</th><th>Capacity</th></tr></thead>
+        <tbody>
+            @foreach (var o in _overallocated)
+            {
+                <tr>
+                    <td>@o.PersonName</td>
+                    <td>@(new DateOnly(o.Year, o.Month, 1).ToString("MMM yyyy"))</td>
+                    <td><span class="badge overallocated">@o.AllocatedFte.ToString("0.##")</span></td>
+                    <td>@o.CapacityFte.ToString("0.##")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private bool _loading = true;
+    private int _activePeople, _activeTeams, _activeTemplates, _activeRolloutTeams, _overallocatedCount;
+    private decimal _totalPlannedFte, _openFte;
+    private List<(string Role, decimal Fte)> _openByRole = new();
+    private List<PersonCapacityResult> _overallocated = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var program = await Db.Programs.FirstAsync();
+        var scenario = await Db.PlanningScenarios.FirstAsync(s => s.ProgramId == program.Id && s.IsBaseline);
+
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var horizonStart = new DateOnly(today.Year, 1, 1);
+        var horizonEnd = horizonStart.AddMonths(59);
+
+        _activePeople = await Db.People.CountAsync(p => p.ProgramId == program.Id && p.Active);
+        _activeTeams = await Db.Teams.CountAsync(t => t.ProgramId == program.Id && t.Active);
+        _activeTemplates = await Db.Templates.CountAsync(t => t.ProgramId == program.Id && t.Status == TemplateStatus.Active);
+        _activeRolloutTeams = await Db.Teams.CountAsync(t => t.ProgramId == program.Id && t.Active && t.TeamType == "Rollout");
+
+        var lines = await Db.ResourcePlanLines.Where(r => r.ScenarioId == scenario.Id).Include(r => r.Role).ToListAsync();
+        _totalPlannedFte = lines.Sum(l => l.Fte);
+        _openFte = lines.Where(l => l.PersonId == null).Sum(l => l.Fte);
+
+        _openByRole = lines.Where(l => l.PersonId == null)
+            .GroupBy(l => l.Role?.Name ?? "(unspecified)")
+            .Select(g => (Role: g.Key, Fte: g.Sum(l => l.Fte)))
+            .OrderByDescending(g => g.Fte)
+            .Take(10)
+            .ToList();
+
+        var capacity = await CapacityService.GetPersonCapacityAsync(scenario.Id, horizonStart, horizonEnd);
+        _overallocated = capacity.Where(c => c.Status == CapacityStatus.Overallocated).OrderBy(c => c.Year).ThenBy(c => c.Month).ToList();
+        _overallocatedCount = _overallocated.Select(o => o.PersonId).Distinct().Count();
+
+        _loading = false;
+    }
+}

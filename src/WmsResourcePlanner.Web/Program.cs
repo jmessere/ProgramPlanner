@@ -19,6 +19,10 @@ builder.Services.AddScoped<ResourceTransformationService>();
 builder.Services.AddScoped<ResourcePlanService>();
 builder.Services.AddScoped<CapacityService>();
 builder.Services.AddScoped<GapAnalysisService>();
+builder.Services.AddScoped<LookupService>();
+builder.Services.AddScoped<ResourcePlanGridService>();
+builder.Services.AddScoped<ScenarioService>();
+builder.Services.AddScoped<WmsResourcePlanner.Infrastructure.Excel.ExcelExportService>();
 
 var app = builder.Build();
 

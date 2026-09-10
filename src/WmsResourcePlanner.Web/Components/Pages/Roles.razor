@@ -1,0 +1,65 @@
+@page "/roles"
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
+@using Microsoft.EntityFrameworkCore
+@using RoleEntity = WmsResourcePlanner.Domain.Entities.Role
+
+<PageTitle>Roles</PageTitle>
+<h1>Roles</h1>
+<p class="save-status">@_status</p>
+
+<table class="data-grid">
+    <thead><tr><th>Name</th><th>Category</th><th>Description</th><th>Active</th></tr></thead>
+    <tbody>
+        @foreach (var r in _roles)
+        {
+            <tr>
+                <td><input @bind="r.Name" @bind:after="() => SaveAsync(r)" /></td>
+                <td><input @bind="r.Category" @bind:after="() => SaveAsync(r)" /></td>
+                <td><input @bind="r.Description" @bind:after="() => SaveAsync(r)" /></td>
+                <td><input type="checkbox" @bind="r.Active" @bind:after="() => SaveAsync(r)" /></td>
+            </tr>
+        }
+        <tr>
+            <td><input placeholder="New role name..." @bind="_newName" @onkeyup="OnNewKeyUp" /></td>
+            <td colspan="3"><button class="btn" @onclick="AddAsync">+ Add Role</button></td>
+        </tr>
+    </tbody>
+</table>
+
+@code {
+    private List<RoleEntity> _roles = new();
+    private string _newName = string.Empty;
+    private string _status = string.Empty;
+    private int _programId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var program = await Db.Programs.FirstAsync();
+        _programId = program.Id;
+        _roles = await Db.Roles.Where(r => r.ProgramId == _programId).OrderBy(r => r.Name).ToListAsync();
+    }
+
+    private async Task SaveAsync(RoleEntity r)
+    {
+        r.ModifiedUtc = DateTime.UtcNow;
+        await Db.SaveChangesAsync();
+        _status = $"Saved {r.Name} at {DateTime.Now:T}";
+    }
+
+    private async Task AddAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newName)) return;
+        var role = new RoleEntity { ProgramId = _programId, Name = _newName.Trim(), Active = true };
+        Db.Roles.Add(role);
+        await Db.SaveChangesAsync();
+        _roles.Add(role);
+        _roles = _roles.OrderBy(x => x.Name).ToList();
+        _newName = string.Empty;
+    }
+
+    private async Task OnNewKeyUp(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await AddAsync();
+    }
+}

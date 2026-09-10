@@ -1,3 +1,44 @@
+.app-shell {
+    display: flex;
+    min-height: 100vh;
+}
+
+.sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    background: #1f2937;
+    color: #e5e7eb;
+    display: flex;
+    flex-direction: column;
+    padding: 1rem 0;
+}
+
+.sidebar .brand {
+    font-weight: 600;
+    font-size: 1.05rem;
+    padding: 0 1rem 1rem 1rem;
+    border-bottom: 1px solid #374151;
+    margin-bottom: 0.5rem;
+}
+
+.sidebar ::deep a {
+    color: #e5e7eb;
+    text-decoration: none;
+    padding: 0.5rem 1rem;
+    display: block;
+}
+
+.sidebar ::deep a:hover,
+.sidebar ::deep a.active {
+    background: #374151;
+}
+
+.content {
+    flex: 1;
+    padding: 1.25rem 1.5rem;
+    overflow-x: auto;
+}
+
 #blazor-error-ui {
     color-scheme: light only;
     background: lightyellow;

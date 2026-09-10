@@ -1,0 +1,121 @@
+@page "/teams/{TeamId:int}"
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
+@using Microsoft.EntityFrameworkCore
+@using WmsResourcePlanner.Domain.Entities
+
+<PageTitle>Team Detail</PageTitle>
+
+@if (_team is null)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <h1>@_team.Name</h1>
+    <p><a href="/teams">← Back to Teams</a></p>
+
+    <h2>Template Assignments</h2>
+    <p class="save-status">Team ↔ Template is many-to-many: a team may support several templates at once.</p>
+    <table class="data-grid">
+        <thead><tr><th>Template</th><th>Start</th><th>End</th><th>Notes</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var a in _assignments)
+            {
+                <tr>
+                    <td>
+                        <select @bind="a.TemplateId" @bind:after="() => SaveAssignmentAsync(a)">
+                            @foreach (var t in _templates)
+                            {
+                                <option value="@t.Id">@t.Name</option>
+                            }
+                        </select>
+                    </td>
+                    <td><input type="date" @bind="a.StartDate" @bind:after="() => SaveAssignmentAsync(a)" /></td>
+                    <td><input type="date" @bind="a.EndDate" @bind:after="() => SaveAssignmentAsync(a)" /></td>
+                    <td><input @bind="a.Notes" @bind:after="() => SaveAssignmentAsync(a)" /></td>
+                    <td><button class="btn secondary" @onclick="() => DeleteAssignmentAsync(a)">Remove</button></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    <button class="btn" @onclick="AddAssignmentAsync">+ Add Template Assignment</button>
+
+    <h2>Team Roles (typical composition)</h2>
+    <table class="data-grid">
+        <thead><tr><th>Role</th><th>Default Required FTE</th></tr></thead>
+        <tbody>
+            @foreach (var tr in _teamRoles)
+            {
+                <tr>
+                    <td>
+                        <select @bind="tr.RoleId" @bind:after="() => SaveTeamRoleAsync(tr)">
+                            @foreach (var r in _roles)
+                            {
+                                <option value="@r.Id">@r.Name</option>
+                            }
+                        </select>
+                    </td>
+                    <td><input type="number" step="0.05" @bind="tr.DefaultRequiredFte" @bind:after="() => SaveTeamRoleAsync(tr)" /></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    <button class="btn" @onclick="AddTeamRoleAsync">+ Add Role</button>
+}
+
+@code {
+    [Parameter] public int TeamId { get; set; }
+
+    private Team? _team;
+    private List<TeamTemplateAssignment> _assignments = new();
+    private List<Template> _templates = new();
+    private List<TeamRole> _teamRoles = new();
+    private List<Role> _roles = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _team = await Db.Teams.FirstOrDefaultAsync(t => t.Id == TeamId);
+        if (_team is null) return;
+
+        _assignments = await Db.TeamTemplateAssignments.Where(a => a.TeamId == TeamId).OrderBy(a => a.StartDate).ToListAsync();
+        _templates = await Db.Templates.Where(t => t.ProgramId == _team.ProgramId).OrderBy(t => t.SortOrder).ToListAsync();
+        _teamRoles = await Db.TeamRoles.Where(r => r.TeamId == TeamId).ToListAsync();
+        _roles = await Db.Roles.Where(r => r.ProgramId == _team.ProgramId).OrderBy(r => r.Name).ToListAsync();
+    }
+
+    private async Task SaveAssignmentAsync(TeamTemplateAssignment a) { a.ModifiedUtc = DateTime.UtcNow; await Db.SaveChangesAsync(); }
+
+    private async Task AddAssignmentAsync()
+    {
+        if (_templates.Count == 0) return;
+        var a = new TeamTemplateAssignment
+        {
+            TeamId = TeamId,
+            TemplateId = _templates[0].Id,
+            StartDate = _templates[0].StartDate ?? DateOnly.FromDateTime(DateTime.Today),
+            EndDate = _templates[0].EndDate ?? DateOnly.FromDateTime(DateTime.Today.AddMonths(6))
+        };
+        Db.TeamTemplateAssignments.Add(a);
+        await Db.SaveChangesAsync();
+        _assignments.Add(a);
+    }
+
+    private async Task DeleteAssignmentAsync(TeamTemplateAssignment a)
+    {
+        Db.TeamTemplateAssignments.Remove(a);
+        await Db.SaveChangesAsync();
+        _assignments.Remove(a);
+    }
+
+    private async Task SaveTeamRoleAsync(TeamRole tr) => await Db.SaveChangesAsync();
+
+    private async Task AddTeamRoleAsync()
+    {
+        if (_roles.Count == 0) return;
+        var tr = new TeamRole { TeamId = TeamId, RoleId = _roles[0].Id };
+        Db.TeamRoles.Add(tr);
+        await Db.SaveChangesAsync();
+        _teamRoles.Add(tr);
+    }
+}

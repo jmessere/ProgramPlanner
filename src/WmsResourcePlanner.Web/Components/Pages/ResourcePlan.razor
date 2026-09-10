@@ -1,0 +1,215 @@
+@page "/resource-plan"
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
+@inject WmsResourcePlanner.Application.Services.ResourcePlanGridService GridService
+@inject WmsResourcePlanner.Application.Services.ScenarioService ScenarioService
+@using Microsoft.EntityFrameworkCore
+@using WmsResourcePlanner.Domain.Entities
+
+<PageTitle>Resource Plan</PageTitle>
+<h1>Resource Plan</h1>
+
+@if (_loading)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <div class="toolbar">
+        <label>Scenario:
+            <select @bind="_scenarioId" @bind:after="LoadAsync">
+                @foreach (var s in _scenarios)
+                {
+                    <option value="@s.Id">@s.Name</option>
+                }
+            </select>
+        </label>
+        <span class="save-status">@_status</span>
+        <button class="btn secondary" @onclick="DuplicateScenarioAsync">Duplicate Scenario</button>
+        <span style="margin-left:auto">60-month horizon: @_horizonStart.ToString("MMM yyyy") – @_horizonEnd.ToString("MMM yyyy")</span>
+    </div>
+
+    <details style="margin-bottom:0.75rem">
+        <summary>+ Add planning row</summary>
+        <div class="toolbar">
+            <select @bind="_newTeamId">
+                <option value="">Team...</option>
+                @foreach (var t in _teams) { <option value="@t.Id">@t.Name</option> }
+            </select>
+            <select @bind="_newAssignmentId">
+                <option value="">Template assignment (optional)</option>
+                @foreach (var a in _assignmentsForNewTeam) { <option value="@a.Id">@a.Template?.Name (@a.StartDate.ToString("MMM yy")-@a.EndDate.ToString("MMM yy"))</option> }
+            </select>
+            <select @bind="_newRoleId">
+                <option value="">Role...</option>
+                @foreach (var r in _roles) { <option value="@r.Id">@r.Name</option> }
+            </select>
+            <select @bind="_newPersonId">
+                <option value="">(open demand)</option>
+                @foreach (var p in _people) { <option value="@p.Id">@p.DisplayName</option> }
+            </select>
+            <select @bind="_newWorkstreamId">
+                <option value="">Workstream (optional)</option>
+                @foreach (var w in _workstreams) { <option value="@w.Id">@w.Name</option> }
+            </select>
+            <button class="btn" @onclick="AddRowAsync">Add</button>
+        </div>
+    </details>
+
+    <div class="grid-scroll">
+        <table class="data-grid">
+            <thead>
+                <tr>
+                    <th style="position:sticky;left:0;z-index:3;width:140px">Team</th>
+                    <th style="position:sticky;left:140px;z-index:3;width:100px">Template</th>
+                    <th style="position:sticky;left:240px;z-index:3;width:120px">Workstream</th>
+                    <th style="position:sticky;left:360px;z-index:3;width:120px">Role</th>
+                    <th style="position:sticky;left:480px;z-index:3;width:130px">Person</th>
+                    @foreach (var m in _monthHeaders)
+                    {
+                        <th style="min-width:56px;text-align:right">@m.ToString("MMM-yy")</th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in _rows)
+                {
+                    <tr>
+                        <td style="position:sticky;left:0;background:white;z-index:1;width:140px">@row.TeamName</td>
+                        <td style="position:sticky;left:140px;background:white;z-index:1;width:100px">@row.TemplateName</td>
+                        <td style="position:sticky;left:240px;background:white;z-index:1;width:120px">@row.WorkstreamName</td>
+                        <td style="position:sticky;left:360px;background:white;z-index:1;width:120px">@row.RoleName</td>
+                        <td style="position:sticky;left:480px;background:white;z-index:1;width:130px">
+                            @if (row.IsOpenDemand)
+                            {
+                                <span class="badge open-demand">Open demand</span>
+                            }
+                            else
+                            {
+                                <span class="badge named">@row.PersonName</span>
+                            }
+                        </td>
+                        @foreach (var mv in row.Months)
+                        {
+                            <td style="text-align:right">
+                                <input type="number" step="0.05" min="0" style="width:52px;text-align:right"
+                                       value="@(mv.Fte == 0 ? "" : mv.Fte.ToString("0.##"))"
+                                       @onchange="e => OnCellChangedAsync(row, mv.Year, mv.Month, e.Value)" />
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private bool _loading = true;
+    private int _programId;
+    private int _scenarioId;
+    private List<PlanningScenario> _scenarios = new();
+    private List<ResourcePlanGridRow> _rows = new();
+    private List<DateOnly> _monthHeaders = new();
+    private DateOnly _horizonStart;
+    private DateOnly _horizonEnd;
+    private string _status = string.Empty;
+
+    private List<Team> _teams = new();
+    private List<Role> _roles = new();
+    private List<Person> _people = new();
+    private List<Workstream> _workstreams = new();
+    private List<TeamTemplateAssignment> _allAssignments = new();
+    private List<TeamTemplateAssignment> _assignmentsForNewTeam => _newTeamId is int tid
+        ? _allAssignments.Where(a => a.TeamId == tid).ToList()
+        : new();
+
+    private int? _newTeamId;
+    private int? _newAssignmentId;
+    private int? _newRoleId;
+    private int? _newPersonId;
+    private int? _newWorkstreamId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var program = await Db.Programs.FirstAsync();
+        _programId = program.Id;
+        _horizonStart = new DateOnly(DateTime.Today.Year, 1, 1);
+        _horizonEnd = _horizonStart.AddMonths(59);
+
+        _scenarios = await Db.PlanningScenarios.Where(s => s.ProgramId == _programId).ToListAsync();
+        _scenarioId = _scenarios.FirstOrDefault(s => s.IsBaseline)?.Id ?? _scenarios.First().Id;
+
+        _teams = await Db.Teams.Where(t => t.ProgramId == _programId).OrderBy(t => t.Name).ToListAsync();
+        _roles = await Db.Roles.Where(r => r.ProgramId == _programId).OrderBy(r => r.Name).ToListAsync();
+        _people = await Db.People.Where(p => p.ProgramId == _programId).OrderBy(p => p.DisplayName).ToListAsync();
+        _workstreams = await Db.Workstreams.Where(w => w.ProgramId == _programId).OrderBy(w => w.Name).ToListAsync();
+        _allAssignments = await Db.TeamTemplateAssignments.Include(a => a.Template).ToListAsync();
+
+        for (var i = 0; i < 60; i++)
+        {
+            _monthHeaders.Add(_horizonStart.AddMonths(i));
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _rows = await GridService.GetGridAsync(_scenarioId, _horizonStart, _horizonEnd);
+        _loading = false;
+    }
+
+    private async Task DuplicateScenarioAsync()
+    {
+        var source = _scenarios.First(s => s.Id == _scenarioId);
+        var copy = await ScenarioService.DuplicateAsync(_scenarioId, $"{source.Name} (Copy)");
+        _scenarios.Add(copy);
+        _scenarioId = copy.Id;
+        _status = $"Duplicated \"{source.Name}\" into \"{copy.Name}\".";
+        await LoadAsync();
+    }
+
+    private async Task OnCellChangedAsync(ResourcePlanGridRow row, int year, int month, object? value)
+    {
+        var text = value?.ToString();
+        var fte = string.IsNullOrWhiteSpace(text) ? 0m : decimal.Parse(text);
+
+        await GridService.UpdateCellAsync(_programId, row.Key, _horizonStart, _horizonEnd, year, month, fte);
+        _status = $"Saved at {DateTime.Now:T}";
+        await LoadAsync();
+    }
+
+    private void AddRowAsync()
+    {
+        if (_newTeamId is null || _newRoleId is null)
+        {
+            _status = "Team and Role are required.";
+            return;
+        }
+
+        var key = new ResourcePlanRowKey(_scenarioId, _newTeamId.Value, _newAssignmentId, null, _newWorkstreamId, null, _newRoleId.Value, _newPersonId);
+        var team = _teams.First(t => t.Id == _newTeamId.Value);
+        var role = _roles.First(r => r.Id == _newRoleId.Value);
+        var person = _newPersonId is int pid ? _people.FirstOrDefault(p => p.Id == pid) : null;
+        var assignment = _newAssignmentId is int aid ? _allAssignments.FirstOrDefault(a => a.Id == aid) : null;
+        var workstream = _newWorkstreamId is int wid ? _workstreams.FirstOrDefault(w => w.Id == wid) : null;
+
+        // Row is transient (not yet persisted) until the user enters a
+        // non-zero month value, at which point UpdateCellAsync creates the
+        // underlying ResourcePlanLine.
+        _rows.Add(new ResourcePlanGridRow
+        {
+            Key = key,
+            TeamName = team.Name,
+            TemplateName = assignment?.Template?.Name,
+            WorkstreamName = workstream?.Name,
+            RoleName = role.Name,
+            PersonName = person?.DisplayName,
+            Months = _monthHeaders.Select(m => new MonthlyValue(m.Year, m.Month, 0m)).ToList()
+        });
+
+        _newTeamId = null; _newAssignmentId = null; _newRoleId = null; _newPersonId = null; _newWorkstreamId = null;
+    }
+}

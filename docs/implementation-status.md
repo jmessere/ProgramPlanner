@@ -1,6 +1,8 @@
 # Current Status
 
-_Last updated: autonomous build session, foundation + domain + core services complete._
+_Last updated: autonomous build session - foundation, domain, seed data, core
+services, master data UI, Resource Plan grid, Excel export, dashboard/reports,
+and scenario duplication complete._
 
 ## Completed
 
@@ -34,47 +36,83 @@ _Last updated: autonomous build session, foundation + domain + core services com
   Available/FullyAllocated/Overallocated status.
 * `GapAnalysisService`: aggregates open (blank-Person) demand by
   month/template/workstream/team/role.
-* Automated tests (xUnit, 13 tests, all passing): transformation engine
+* `LookupService`: case-insensitive get-or-create for Team, Person, Role,
+  Workstream, FocusArea, Site (duplicate-prevention infrastructure).
+* Master data UI (Blazor pages): People, Roles, Workstreams + Focus Areas,
+  Sites, Teams (+ Team Detail with TeamTemplateAssignment/TeamRole editing),
+  Templates (+ Template Detail with Phase CRUD and reverse team-assignment
+  view). All wired to the corresponding Application services.
+* `ResourcePlanGridService` + `/resource-plan` page: the primary 60-month
+  editable Resource Plan grid with frozen row-header columns, add-row UI,
+  and per-cell editing (re-expand → apply change → re-consolidate →
+  persist).
+* `/` Overview dashboard: KPI cards (active people/teams, total planned
+  FTE, open FTE, overallocated people, active templates, active rollout
+  teams) and supporting tables (open demand by role, overallocated
+  people), backed by `CapacityService`/`GapAnalysisService`. Verified live
+  against seed data (30 people, 11 teams, 17.75 planned FTE, 4 open FTE,
+  2 overallocated people, 4 active templates/rollout teams).
+* `/reports` Gap Analysis page (open demand table by template/workstream/
+  team/role/month).
+* `ExcelExportService` (Infrastructure.Excel, ClosedXML): Instructions,
+  Resource Plan (frozen header/columns, real `DateTime` month headers),
+  Template Plan, Reference Data, and Summary sheets, reusing the
+  transformation engine. `/excel` page triggers download via JS interop
+  (`wwwroot/js/app.js`).
+* `ScenarioService.DuplicateAsync`: duplicates a PlanningScenario's
+  ResourcePlanLines into a new named scenario (master data such as Teams/
+  People/Templates/Roles is shared, not copied). Wired into DI and exposed
+  via a "Duplicate Scenario" button on `/resource-plan`.
+* Automated tests (xUnit, 15 tests, all passing): transformation engine
   (month splitting, overlap summing, year-boundary handling, range
   consolidation, round-trip, 60-month horizon), capacity overallocation,
   gap analysis (open-demand-only filtering), Team↔Template many-to-many
   (including concurrent/overlapping assignments), ResourcePlanLine open
-  demand semantics.
+  demand semantics, Excel export structure/content, scenario duplication
+  (copies plan lines, shares master data).
 * End-to-end verified: `dotnet run` successfully applies migrations, seeds
-  data, and serves the default Blazor page (HTTP 200) on first run.
+  data, and serves all 10+ navigation routes with HTTP 200. Dashboard KPIs
+  independently spot-checked against seed data via curl.
 
 ## In Progress
 
-* None (between phases).
+* None (between phases). Gantt views (Phases 11-13) are the next planned
+  work; not started.
 
 ## Remaining
 
-* Lookup infrastructure (searchable/creatable dropdowns, duplicate
-  prevention) - Phase 4.
-* Master data UI: People, Teams, Roles, Templates, Template Phases,
-  Workstreams, Focus Areas, Sites - Phase 5.
-* Team↔Template assignment UI on Team/Template detail pages - Phase 6.
-* Resource Plan monthly grid (60-month editable spreadsheet-style screen)
-  - Phase 10.
 * Template Gantt, Team-Template Gantt, Resource Gantt (drag/resize
-  timeline editing) - Phases 11-13.
-* Validation warnings (overallocation, outside-availability, etc.) -
-  Phase 14.
-* Excel export (ClosedXML workbook: Resource Plan, Template Plan,
-  Reference Data, Summary) - Phase 15.
-* Excel import + preview - Phases 16-17.
-* Excel round-trip tests - Phase 18.
-* Dashboard/reports (Overview, Gap Analysis, Person Capacity, Rollout
-  Capacity) - Phase 19.
-* Planning scenario duplication UI - Phase 20.
-* Global timeline, undo, UX refinement, architecture audit, acceptance
-  verification - Phases 21-25.
+  timeline editing) - Phases 11-13. Highest-effort remaining item
+  (requires JS interop for drag/resize); not started.
+* Validation warnings surfaced inline in grid/detail pages (overallocation,
+  outside-availability, outside-team-template-dates) - Phase 14. Dashboard
+  already surfaces overallocation at a summary level; no inline per-cell
+  warnings yet.
+* Excel import + preview + round-trip tests - Phases 16-18. Not started.
+* Combined "Filled / Open / Total Need" report view per role/team
+  (Acceptance Scenario D) - not implemented as a single view (data is
+  independently available via CapacityService/GapAnalysisService).
+* Filter bar (template/workstream/team/role/person/date) on grid/reports -
+  not implemented; only scenario selection exists today.
+* Rollout Capacity report (multiple simultaneous rollout teams) - not
+  implemented as a dedicated view; underlying data model and seed data
+  fully support the scenario.
+* Global timeline (Phase 21), undo/Ctrl+Z (Phase 22), UX refinement
+  (Phase 23) - not started.
+* Architecture audit against SPEC.md (Phase 24) - not formally performed
+  as a standalone pass, though the implementation was built directly from
+  spec section-by-section.
 
 ## Known Issues
 
-* None currently blocking. UI layer (grid/Gantt) has not yet been built,
-  so no in-application editing exists yet - all verification so far is at
-  the domain/service/data layer.
+* Interactive Blazor Server circuit behavior (grid cell editing, add-row,
+  detail-page editing) has been verified via unit/service tests and static
+  SSR HTML checks, but not exercised through a live browser/SignalR
+  session in this environment - flagged as MANUAL VERIFICATION REQUIRED
+  for interactive editing flows.
+* No inline validation warnings yet for overallocation/out-of-range dates
+  at the point of edit (only after-the-fact via dashboard/reports).
+* Excel import is not implemented; the workbook is currently export-only.
 
 ## Architecture Decisions
 
@@ -82,11 +120,18 @@ See `/docs/implementation-decisions.md`.
 
 ## Test Status
 
-`dotnet test tests/WmsResourcePlanner.Tests` → 13/13 passing.
+`dotnet test tests/WmsResourcePlanner.Tests` → 15/15 passing.
+
+## Acceptance Status
+
+See `/docs/acceptance-results.md` for the full Definition-of-Done and
+Critical-Acceptance-Scenario assessment (17 PASS / 3 PARTIAL / 8 FAIL of 28
+DoD items; primary gaps are Gantt and Excel import).
 
 ## Next Action
 
-Implement Phase 4 (reusable lookup/inline-create infrastructure) and Phase 5
-(master data UI), then Phase 10 (Resource Plan monthly grid) to establish
-the primary end-to-end planning workflow, per the scope-degradation
-priority order in the build instructions.
+In priority order for a follow-up session: (1) inline validation warnings
+(cheap, high value), (2) a basic Template Gantt (read-heavy, simplest of
+the three Gantt views), (3) Excel import, (4) Resource Gantt drag/resize,
+(5) remaining polish items (filters, combined gap report, undo, global
+timeline).

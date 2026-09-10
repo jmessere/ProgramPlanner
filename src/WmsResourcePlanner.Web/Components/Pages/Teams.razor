@@ -1,0 +1,73 @@
+@page "/teams"
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
+@using Microsoft.EntityFrameworkCore
+@using TeamEntity = WmsResourcePlanner.Domain.Entities.Team
+
+<PageTitle>Teams</PageTitle>
+<h1>Teams</h1>
+
+<table class="data-grid">
+    <thead><tr><th>Name</th><th>Team Type</th><th>Workstream</th><th>Active</th><th></th></tr></thead>
+    <tbody>
+        @foreach (var t in _teams)
+        {
+            <tr>
+                <td><input @bind="t.Name" @bind:after="() => SaveAsync(t)" /></td>
+                <td>
+                    <select @bind="t.TeamType" @bind:after="() => SaveAsync(t)">
+                        @foreach (var tt in new[] { "Template Build", "Functional", "Technical", "Integration", "Testing", "Rollout", "Hypercare", "Program", "Other" })
+                        {
+                            <option value="@tt">@tt</option>
+                        }
+                    </select>
+                </td>
+                <td>
+                    <select @bind="t.WorkstreamId" @bind:after="() => SaveAsync(t)">
+                        <option value="">(none)</option>
+                        @foreach (var w in _workstreams)
+                        {
+                            <option value="@w.Id">@w.Name</option>
+                        }
+                    </select>
+                </td>
+                <td><input type="checkbox" @bind="t.Active" @bind:after="() => SaveAsync(t)" /></td>
+                <td><a href="@($"/teams/{t.Id}")">Open →</a></td>
+            </tr>
+        }
+        <tr>
+            <td><input placeholder="New team name..." @bind="_newName" @onkeyup="OnNewKeyUp" /></td>
+            <td colspan="4"><button class="btn" @onclick="AddAsync">+ Add Team</button></td>
+        </tr>
+    </tbody>
+</table>
+
+@code {
+    private List<TeamEntity> _teams = new();
+    private List<WmsResourcePlanner.Domain.Entities.Workstream> _workstreams = new();
+    private string _newName = string.Empty;
+    private int _programId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var program = await Db.Programs.FirstAsync();
+        _programId = program.Id;
+        _teams = await Db.Teams.Where(t => t.ProgramId == _programId).OrderBy(t => t.Name).ToListAsync();
+        _workstreams = await Db.Workstreams.Where(w => w.ProgramId == _programId).OrderBy(w => w.Name).ToListAsync();
+    }
+
+    private async Task SaveAsync(TeamEntity t) { t.ModifiedUtc = DateTime.UtcNow; await Db.SaveChangesAsync(); }
+
+    private async Task AddAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newName)) return;
+        var t = new TeamEntity { ProgramId = _programId, Name = _newName.Trim(), TeamType = "Other", Active = true };
+        Db.Teams.Add(t);
+        await Db.SaveChangesAsync();
+        _teams.Add(t);
+        _teams = _teams.OrderBy(x => x.Name).ToList();
+        _newName = string.Empty;
+    }
+
+    private async Task OnNewKeyUp(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e) { if (e.Key == "Enter") await AddAsync(); }
+}

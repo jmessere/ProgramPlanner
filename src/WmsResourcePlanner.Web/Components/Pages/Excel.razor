@@ -1,0 +1,49 @@
+@page "/excel"
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Infrastructure.Excel.ExcelExportService ExportService
+@inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
+@inject IJSRuntime JS
+@using Microsoft.EntityFrameworkCore
+@using WmsResourcePlanner.Domain.Entities
+
+<PageTitle>Excel</PageTitle>
+<h1>Excel</h1>
+<p>Export the current resource plan as a standalone workbook (Resource Plan, Template Plan, Reference Data, Summary).</p>
+
+<label>Scenario:
+    <select @bind="_scenarioId">
+        @foreach (var s in _scenarios)
+        {
+            <option value="@s.Id">@s.Name</option>
+        }
+    </select>
+</label>
+
+<p><button class="btn" @onclick="ExportAsync" disabled="@_exporting">@(_exporting ? "Generating..." : "Export Resource Plan Workbook")</button></p>
+
+<p class="save-status">Excel import (upload + preview) is not yet implemented in this build - see /docs/implementation-status.md.</p>
+
+@code {
+    private List<PlanningScenario> _scenarios = new();
+    private int _scenarioId;
+    private bool _exporting;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var program = await Db.Programs.FirstAsync();
+        _scenarios = await Db.PlanningScenarios.Where(s => s.ProgramId == program.Id).ToListAsync();
+        _scenarioId = _scenarios.FirstOrDefault(s => s.IsBaseline)?.Id ?? _scenarios.First().Id;
+    }
+
+    private async Task ExportAsync()
+    {
+        _exporting = true;
+        var horizonStart = new DateOnly(DateTime.Today.Year, 1, 1);
+        var horizonEnd = horizonStart.AddMonths(59);
+        var bytes = await ExportService.ExportAsync(_scenarioId, horizonStart, horizonEnd);
+        _exporting = false;
+
+        var base64 = Convert.ToBase64String(bytes);
+        await JS.InvokeVoidAsync("wmsDownload", "ResourcePlan.xlsx", base64);
+    }
+}

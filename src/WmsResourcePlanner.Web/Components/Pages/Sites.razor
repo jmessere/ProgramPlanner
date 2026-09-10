@@ -1,0 +1,55 @@
+@page "/sites"
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
+@using Microsoft.EntityFrameworkCore
+@using SiteEntity = WmsResourcePlanner.Domain.Entities.Site
+
+<PageTitle>Sites</PageTitle>
+<h1>Sites</h1>
+
+<table class="data-grid">
+    <thead><tr><th>Name</th><th>Code</th><th>Region</th><th>Planned Go-Live</th></tr></thead>
+    <tbody>
+        @foreach (var s in _sites)
+        {
+            <tr>
+                <td><input @bind="s.Name" @bind:after="() => SaveAsync(s)" /></td>
+                <td><input @bind="s.Code" @bind:after="() => SaveAsync(s)" /></td>
+                <td><input @bind="s.Region" @bind:after="() => SaveAsync(s)" /></td>
+                <td><input type="date" @bind="s.PlannedGoLiveDate" @bind:after="() => SaveAsync(s)" /></td>
+            </tr>
+        }
+        <tr>
+            <td><input placeholder="New site..." @bind="_newName" @onkeyup="OnNewKeyUp" /></td>
+            <td colspan="3"><button class="btn" @onclick="AddAsync">+ Add Site</button></td>
+        </tr>
+    </tbody>
+</table>
+
+@code {
+    private List<SiteEntity> _sites = new();
+    private string _newName = string.Empty;
+    private int _programId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var program = await Db.Programs.FirstAsync();
+        _programId = program.Id;
+        _sites = await Db.Sites.Where(s => s.ProgramId == _programId).OrderBy(s => s.Name).ToListAsync();
+    }
+
+    private async Task SaveAsync(SiteEntity s) { s.ModifiedUtc = DateTime.UtcNow; await Db.SaveChangesAsync(); }
+
+    private async Task AddAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newName)) return;
+        var s = new SiteEntity { ProgramId = _programId, Name = _newName.Trim() };
+        Db.Sites.Add(s);
+        await Db.SaveChangesAsync();
+        _sites.Add(s);
+        _sites = _sites.OrderBy(x => x.Name).ToList();
+        _newName = string.Empty;
+    }
+
+    private async Task OnNewKeyUp(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e) { if (e.Key == "Enter") await AddAsync(); }
+}

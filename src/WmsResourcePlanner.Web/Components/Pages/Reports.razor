@@ -1,0 +1,46 @@
+@page "/reports"
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
+@inject WmsResourcePlanner.Application.Services.GapAnalysisService GapService
+@using Microsoft.EntityFrameworkCore
+
+<PageTitle>Reports</PageTitle>
+<h1>Gap Analysis (Open Demand)</h1>
+
+@if (_loading)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <table class="data-grid">
+        <thead><tr><th>Month</th><th>Template</th><th>Workstream</th><th>Team</th><th>Role</th><th>Open FTE</th></tr></thead>
+        <tbody>
+            @foreach (var g in _gaps)
+            {
+                <tr>
+                    <td>@(new DateOnly(g.Year, g.Month, 1).ToString("MMM yyyy"))</td>
+                    <td>@g.TemplateName</td>
+                    <td>@g.WorkstreamName</td>
+                    <td>@g.TeamName</td>
+                    <td>@g.RoleName</td>
+                    <td>@g.OpenFte.ToString("0.##")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private bool _loading = true;
+    private List<GapResult> _gaps = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var program = await Db.Programs.FirstAsync();
+        var scenario = await Db.PlanningScenarios.FirstAsync(s => s.ProgramId == program.Id && s.IsBaseline);
+        var horizonStart = new DateOnly(DateTime.Today.Year, 1, 1);
+        _gaps = await GapService.GetOpenDemandAsync(scenario.Id, horizonStart, horizonStart.AddMonths(59));
+        _loading = false;
+    }
+}

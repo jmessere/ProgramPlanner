@@ -69,3 +69,38 @@ not time-based. Audit fields (CreatedUtc/ModifiedUtc) remain `DateTime`.
 SQLite file at `src/WmsResourcePlanner.Web/App_Data/wmsresourceplanner.db`,
 excluded from source control via `.gitignore`. Migrations + seed data run
 automatically on startup (`db.Database.Migrate()` + `SeedData.SeedAsync`).
+
+## `Program` entity name collision with top-level `Program.cs`
+
+The Domain entity `Program` collides with the implicit top-level `Program`
+class generated for `WmsResourcePlanner.Web/Program.cs`, and with
+`Routes.razor`'s `typeof(Program)` usage for the Blazor router assembly.
+Resolution: `WmsResourcePlanner.Domain.Entities` is **not** added to the
+global `_Imports.razor`; it is imported per-page where an entity type is
+needed, keeping the global top-level `Program` class unambiguous.
+
+## Razor `@bind` + `@onchange` conflict (RZ10008)
+
+Combining `@bind="x"` with a manual `@onchange="y"` handler on the same
+element fails to compile (both lower to the same `onchange` DOM attribute).
+Fixed by using `@bind:after="y"` instead, which composes correctly with
+`@bind`. Applied across all master-data pages via a scripted regex
+replacement; manual (non-`@bind`) `@onchange` usages were left untouched.
+
+## Scenario duplication scope
+
+`ScenarioService.DuplicateAsync` copies only `ResourcePlanLine` records into
+the new scenario. Master data (Teams, People, Roles, Templates, Workstreams,
+etc.) is shared/referenced, never duplicated, per SPEC.md's model that
+scenarios are alternate resource-plan views over the same organizational
+structure.
+
+## Scope not completed this session
+
+Given the size of SPEC.md and the priority order in the build instructions
+(functional depth over broad, shallow coverage), the following were
+deliberately left unimplemented rather than stubbed or faked: Template/Team-
+Template/Resource Gantt views (drag/resize), Excel import, inline validation
+warnings, a dedicated combined Filled/Open/Total report, a grid/report
+filter bar, global timeline, and undo. These are recorded honestly as FAIL/
+PARTIAL in `/docs/acceptance-results.md` rather than represented as done.

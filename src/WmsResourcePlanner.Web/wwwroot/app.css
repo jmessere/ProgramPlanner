@@ -36,3 +36,118 @@ h1:focus {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
 }
+
+/* ---- App-wide table / grid styles ---- */
+body {
+    font-family: Segoe UI, Arial, sans-serif;
+    margin: 0;
+}
+
+table.data-grid {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.9rem;
+}
+
+table.data-grid th, table.data-grid td {
+    border: 1px solid #d1d5db;
+    padding: 0.3rem 0.5rem;
+    text-align: left;
+}
+
+table.data-grid th {
+    background: #f3f4f6;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+table.data-grid input, table.data-grid select {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid transparent;
+    background: transparent;
+    padding: 0.15rem;
+}
+
+table.data-grid input:focus, table.data-grid select:focus {
+    border: 1px solid #2563eb;
+    background: white;
+}
+
+.frozen-col {
+    position: sticky;
+    left: 0;
+    background: white;
+    z-index: 1;
+}
+
+.grid-scroll {
+    overflow-x: auto;
+    max-height: 75vh;
+    overflow-y: auto;
+    border: 1px solid #d1d5db;
+}
+
+.toolbar {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.toolbar button, .btn {
+    background: #2563eb;
+    color: white;
+    border: none;
+    padding: 0.4rem 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.toolbar button.secondary, .btn.secondary {
+    background: #6b7280;
+}
+
+.badge {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    color: white;
+}
+
+.badge.open-demand { background: #f59e0b; }
+.badge.named { background: #16a34a; }
+.badge.overallocated { background: #dc2626; }
+
+.save-status {
+    font-size: 0.8rem;
+    color: #6b7280;
+}
+
+.kpi-cards {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+}
+
+.kpi-card {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    min-width: 140px;
+}
+
+.kpi-card .value {
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.kpi-card .label {
+    font-size: 0.8rem;
+    color: #6b7280;
+}

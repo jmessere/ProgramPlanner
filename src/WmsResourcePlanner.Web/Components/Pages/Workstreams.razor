@@ -1,0 +1,101 @@
+@page "/workstreams"
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
+@using Microsoft.EntityFrameworkCore
+@using WorkstreamEntity = WmsResourcePlanner.Domain.Entities.Workstream
+@using FocusAreaEntity = WmsResourcePlanner.Domain.Entities.FocusArea
+
+<PageTitle>Workstreams</PageTitle>
+<h1>Workstreams &amp; Focus Areas</h1>
+<p class="save-status">@_status</p>
+
+<h2>Workstreams</h2>
+<table class="data-grid">
+    <thead><tr><th>Name</th><th>Description</th><th>Active</th></tr></thead>
+    <tbody>
+        @foreach (var w in _workstreams)
+        {
+            <tr>
+                <td><input @bind="w.Name" @bind:after="() => SaveWsAsync(w)" /></td>
+                <td><input @bind="w.Description" @bind:after="() => SaveWsAsync(w)" /></td>
+                <td><input type="checkbox" @bind="w.Active" @bind:after="() => SaveWsAsync(w)" /></td>
+            </tr>
+        }
+        <tr>
+            <td><input placeholder="New workstream..." @bind="_newWsName" @onkeyup="OnNewWsKeyUp" /></td>
+            <td colspan="2"><button class="btn" @onclick="AddWsAsync">+ Add Workstream</button></td>
+        </tr>
+    </tbody>
+</table>
+
+<h2>Focus Areas</h2>
+<table class="data-grid">
+    <thead><tr><th>Name</th><th>Workstream</th><th>Active</th></tr></thead>
+    <tbody>
+        @foreach (var f in _focusAreas)
+        {
+            <tr>
+                <td><input @bind="f.Name" @bind:after="() => SaveFaAsync(f)" /></td>
+                <td>
+                    <select @bind="f.WorkstreamId" @bind:after="() => SaveFaAsync(f)">
+                        <option value="">(none)</option>
+                        @foreach (var w in _workstreams)
+                        {
+                            <option value="@w.Id">@w.Name</option>
+                        }
+                    </select>
+                </td>
+                <td><input type="checkbox" @bind="f.Active" @bind:after="() => SaveFaAsync(f)" /></td>
+            </tr>
+        }
+        <tr>
+            <td><input placeholder="New focus area..." @bind="_newFaName" @onkeyup="OnNewFaKeyUp" /></td>
+            <td colspan="2"><button class="btn" @onclick="AddFaAsync">+ Add Focus Area</button></td>
+        </tr>
+    </tbody>
+</table>
+
+@code {
+    private List<WorkstreamEntity> _workstreams = new();
+    private List<FocusAreaEntity> _focusAreas = new();
+    private string _newWsName = string.Empty;
+    private string _newFaName = string.Empty;
+    private string _status = string.Empty;
+    private int _programId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var program = await Db.Programs.FirstAsync();
+        _programId = program.Id;
+        _workstreams = await Db.Workstreams.Where(w => w.ProgramId == _programId).OrderBy(w => w.Name).ToListAsync();
+        _focusAreas = await Db.FocusAreas.Where(f => f.ProgramId == _programId).OrderBy(f => f.Name).ToListAsync();
+    }
+
+    private async Task SaveWsAsync(WorkstreamEntity w) { w.ModifiedUtc = DateTime.UtcNow; await Db.SaveChangesAsync(); _status = $"Saved {w.Name}"; }
+    private async Task SaveFaAsync(FocusAreaEntity f) { f.ModifiedUtc = DateTime.UtcNow; await Db.SaveChangesAsync(); _status = $"Saved {f.Name}"; }
+
+    private async Task AddWsAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newWsName)) return;
+        var w = new WorkstreamEntity { ProgramId = _programId, Name = _newWsName.Trim(), Active = true };
+        Db.Workstreams.Add(w);
+        await Db.SaveChangesAsync();
+        _workstreams.Add(w);
+        _workstreams = _workstreams.OrderBy(x => x.Name).ToList();
+        _newWsName = string.Empty;
+    }
+
+    private async Task AddFaAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newFaName)) return;
+        var f = new FocusAreaEntity { ProgramId = _programId, Name = _newFaName.Trim(), Active = true };
+        Db.FocusAreas.Add(f);
+        await Db.SaveChangesAsync();
+        _focusAreas.Add(f);
+        _focusAreas = _focusAreas.OrderBy(x => x.Name).ToList();
+        _newFaName = string.Empty;
+    }
+
+    private async Task OnNewWsKeyUp(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e) { if (e.Key == "Enter") await AddWsAsync(); }
+    private async Task OnNewFaKeyUp(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e) { if (e.Key == "Enter") await AddFaAsync(); }
+}

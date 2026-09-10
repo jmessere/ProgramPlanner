@@ -1,0 +1,87 @@
+@page "/templates/{TemplateId:int}"
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
+@using Microsoft.EntityFrameworkCore
+@using WmsResourcePlanner.Domain.Entities
+
+<PageTitle>Template Detail</PageTitle>
+
+@if (_template is null)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <h1>@_template.Name</h1>
+    <p><a href="/templates">← Back to Templates</a></p>
+
+    <h2>Phases</h2>
+    <table class="data-grid">
+        <thead><tr><th>Name</th><th>Start</th><th>End</th></tr></thead>
+        <tbody>
+            @foreach (var p in _phases)
+            {
+                <tr>
+                    <td><input @bind="p.Name" @bind:after="() => SavePhaseAsync(p)" /></td>
+                    <td><input type="date" @bind="p.StartDate" @bind:after="() => SavePhaseAsync(p)" /></td>
+                    <td><input type="date" @bind="p.EndDate" @bind:after="() => SavePhaseAsync(p)" /></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    <button class="btn" @onclick="AddPhaseAsync">+ Add Phase</button>
+
+    <h2>Teams Supporting This Template</h2>
+    <table class="data-grid">
+        <thead><tr><th>Team</th><th>Workstream</th><th>Start</th><th>End</th></tr></thead>
+        <tbody>
+            @foreach (var a in _assignments)
+            {
+                <tr>
+                    <td><a href="@($"/teams/{a.TeamId}")">@a.Team?.Name</a></td>
+                    <td>@a.Team?.Workstream?.Name</td>
+                    <td>@a.StartDate.ToString("MMM yyyy")</td>
+                    <td>@a.EndDate.ToString("MMM yyyy")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    [Parameter] public int TemplateId { get; set; }
+
+    private Template? _template;
+    private List<TemplatePhase> _phases = new();
+    private List<TeamTemplateAssignment> _assignments = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _template = await Db.Templates.FirstOrDefaultAsync(t => t.Id == TemplateId);
+        if (_template is null) return;
+
+        _phases = await Db.TemplatePhases.Where(p => p.TemplateId == TemplateId).OrderBy(p => p.SortOrder).ToListAsync();
+        _assignments = await Db.TeamTemplateAssignments
+            .Where(a => a.TemplateId == TemplateId)
+            .Include(a => a.Team).ThenInclude(t => t!.Workstream)
+            .OrderBy(a => a.StartDate)
+            .ToListAsync();
+    }
+
+    private async Task SavePhaseAsync(TemplatePhase p) { p.ModifiedUtc = DateTime.UtcNow; await Db.SaveChangesAsync(); }
+
+    private async Task AddPhaseAsync()
+    {
+        var p = new TemplatePhase
+        {
+            TemplateId = TemplateId,
+            Name = "New Phase",
+            StartDate = _template!.StartDate ?? DateOnly.FromDateTime(DateTime.Today),
+            EndDate = _template.EndDate ?? DateOnly.FromDateTime(DateTime.Today.AddMonths(1)),
+            SortOrder = _phases.Count
+        };
+        Db.TemplatePhases.Add(p);
+        await Db.SaveChangesAsync();
+        _phases.Add(p);
+    }
+}

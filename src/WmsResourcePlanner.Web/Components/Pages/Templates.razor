@@ -1,0 +1,62 @@
+@page "/templates"
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
+@using Microsoft.EntityFrameworkCore
+@using TemplateEntity = WmsResourcePlanner.Domain.Entities.Template
+
+<PageTitle>Templates</PageTitle>
+<h1>Templates</h1>
+
+<table class="data-grid">
+    <thead><tr><th>Name</th><th>Status</th><th>Start</th><th>End</th><th></th></tr></thead>
+    <tbody>
+        @foreach (var t in _templates)
+        {
+            <tr>
+                <td><input @bind="t.Name" @bind:after="() => SaveAsync(t)" /></td>
+                <td>
+                    <select @bind="t.Status" @bind:after="() => SaveAsync(t)">
+                        @foreach (var s in Enum.GetValues<WmsResourcePlanner.Domain.Entities.TemplateStatus>())
+                        {
+                            <option value="@s">@s</option>
+                        }
+                    </select>
+                </td>
+                <td><input type="date" @bind="t.StartDate" @bind:after="() => SaveAsync(t)" /></td>
+                <td><input type="date" @bind="t.EndDate" @bind:after="() => SaveAsync(t)" /></td>
+                <td><a href="@($"/templates/{t.Id}")">Open →</a></td>
+            </tr>
+        }
+        <tr>
+            <td><input placeholder="New template name..." @bind="_newName" @onkeyup="OnNewKeyUp" /></td>
+            <td colspan="4"><button class="btn" @onclick="AddAsync">+ Add Template</button></td>
+        </tr>
+    </tbody>
+</table>
+
+@code {
+    private List<TemplateEntity> _templates = new();
+    private string _newName = string.Empty;
+    private int _programId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var program = await Db.Programs.FirstAsync();
+        _programId = program.Id;
+        _templates = await Db.Templates.Where(t => t.ProgramId == _programId).OrderBy(t => t.SortOrder).ToListAsync();
+    }
+
+    private async Task SaveAsync(TemplateEntity t) { t.ModifiedUtc = DateTime.UtcNow; await Db.SaveChangesAsync(); }
+
+    private async Task AddAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newName)) return;
+        var t = new TemplateEntity { ProgramId = _programId, Name = _newName.Trim(), SortOrder = _templates.Count };
+        Db.Templates.Add(t);
+        await Db.SaveChangesAsync();
+        _templates.Add(t);
+        _newName = string.Empty;
+    }
+
+    private async Task OnNewKeyUp(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e) { if (e.Key == "Enter") await AddAsync(); }
+}
