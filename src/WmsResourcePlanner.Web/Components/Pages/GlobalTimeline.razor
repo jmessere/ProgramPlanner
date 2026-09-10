@@ -1,0 +1,130 @@
+@page "/global-timeline"
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Application.Services.GanttService GanttService
+@inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
+@using Microsoft.EntityFrameworkCore
+@using WmsResourcePlanner.Domain.Entities
+@using WmsResourcePlanner.Application.DTOs
+
+<PageTitle>Global Timeline</PageTitle>
+<h1>Global Timeline</h1>
+<p>A program-wide view of every resource-plan allocation. Group by any dimension and filter to focus on a
+slice of the plan (SPEC.md section 48). This view is read-only; edit dates on the Resource Plan grid or the
+Resource Gantt.</p>
+
+@if (_loading)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <div class="gantt-toolbar" style="flex-wrap:wrap;gap:0.5rem">
+        <label>Scenario:
+            <select @bind="_scenarioId" @bind:after="LoadAsync">
+                @foreach (var s in _scenarios) { <option value="@s.Id">@s.Name</option> }
+            </select>
+        </label>
+        <label>Group by:
+            <select @bind="_groupBy">
+                <option value="Template">Template</option>
+                <option value="Phase">Template Phase</option>
+                <option value="Workstream">Workstream</option>
+                <option value="Team">Team</option>
+                <option value="Role">Role</option>
+                <option value="Person">Person</option>
+            </select>
+        </label>
+        <label>Template: <input @bind="_templateFilter" @bind:event="oninput" placeholder="contains..." style="width:110px" /></label>
+        <label>Workstream: <input @bind="_workstreamFilter" @bind:event="oninput" placeholder="contains..." style="width:110px" /></label>
+        <label>Team: <input @bind="_teamFilter" @bind:event="oninput" placeholder="contains..." style="width:110px" /></label>
+        <label>Role: <input @bind="_roleFilter" @bind:event="oninput" placeholder="contains..." style="width:110px" /></label>
+        <label>Person: <input @bind="_personFilter" @bind:event="oninput" placeholder="contains..." style="width:110px" /></label>
+        <label><input type="checkbox" @bind="_openDemandOnly" /> Open demand only</label>
+    </div>
+
+    <p>Showing @FilteredBars().Count of @_allLines.Count allocation(s).</p>
+
+    @if (FilteredBars().Count == 0)
+    {
+        <p>No allocations match the current filters.</p>
+    }
+    else
+    {
+        <GanttChart Bars="FilteredBars()" HorizonStart="_horizonStart" HorizonEnd="_horizonEnd" GroupHeader="@_groupBy" PxPerDay="2.0" />
+    }
+}
+
+@code {
+    private bool _loading = true;
+    private int _scenarioId;
+    private List<PlanningScenario> _scenarios = new();
+    private List<TimelineLine> _allLines = new();
+    private DateOnly _horizonStart;
+    private DateOnly _horizonEnd;
+
+    private string _groupBy = "Template";
+    private string _templateFilter = string.Empty;
+    private string _workstreamFilter = string.Empty;
+    private string _teamFilter = string.Empty;
+    private string _roleFilter = string.Empty;
+    private string _personFilter = string.Empty;
+    private bool _openDemandOnly;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _horizonStart = new DateOnly(DateTime.Today.Year, 1, 1);
+        _horizonEnd = _horizonStart.AddMonths(59);
+
+        var program = await Db.Programs.FirstAsync();
+        _scenarios = await Db.PlanningScenarios.Where(s => s.ProgramId == program.Id).ToListAsync();
+        _scenarioId = _scenarios.FirstOrDefault(s => s.IsBaseline)?.Id ?? _scenarios.First().Id;
+
+        await LoadAsync();
+        _loading = false;
+    }
+
+    private async Task LoadAsync()
+    {
+        _allLines = await GanttService.GetTimelineLinesAsync(_scenarioId);
+    }
+
+    private List<GanttBar> FilteredBars()
+    {
+        IEnumerable<TimelineLine> query = _allLines;
+
+        if (!string.IsNullOrWhiteSpace(_templateFilter))
+            query = query.Where(l => (l.TemplateName ?? "").Contains(_templateFilter, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(_workstreamFilter))
+            query = query.Where(l => (l.WorkstreamName ?? "").Contains(_workstreamFilter, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(_teamFilter))
+            query = query.Where(l => l.TeamName.Contains(_teamFilter, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(_roleFilter))
+            query = query.Where(l => l.RoleName.Contains(_roleFilter, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(_personFilter))
+            query = query.Where(l => (l.PersonName ?? "").Contains(_personFilter, StringComparison.OrdinalIgnoreCase));
+        if (_openDemandOnly)
+            query = query.Where(l => l.IsOpenDemand);
+
+        return query.Select(l => new GanttBar
+        {
+            Id = l.Id,
+            GroupLabel = GroupLabelFor(l),
+            BarLabel = $"{l.TeamName} · {l.RoleName} · {l.Fte:0.##} FTE",
+            SubLabel = l.PersonName,
+            StartDate = l.StartDate,
+            EndDate = l.EndDate,
+            Color = l.IsOpenDemand ? "open" : "filled"
+        }).ToList();
+    }
+
+    private string GroupLabelFor(TimelineLine l) => _groupBy switch
+    {
+        "Template" => l.TemplateName ?? "(no template)",
+        "Phase" => l.PhaseName ?? "(no phase)",
+        "Workstream" => l.WorkstreamName ?? "(no workstream)",
+        "Team" => l.TeamName,
+        "Role" => l.RoleName,
+        "Person" => l.PersonName ?? "(open demand)",
+        _ => "(all)"
+    };
+}

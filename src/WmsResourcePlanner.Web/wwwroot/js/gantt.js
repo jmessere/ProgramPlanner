@@ -51,3 +51,22 @@ window.wmsGantt = {
         document.addEventListener("mouseup", onMouseUp);
     }
 };
+
+// Global Ctrl+Z (Cmd+Z) handling for the Undo bar (SPEC.md Phase 22).
+// Only one UndoBar instance is expected to be alive per page; a fresh
+// listener replaces the previous one each time init() runs.
+window.wmsUndo = {
+    _dotNetRef: null,
+    _bound: false,
+    init: function (dotNetRef) {
+        window.wmsUndo._dotNetRef = dotNetRef;
+        if (window.wmsUndo._bound) return;
+        window.wmsUndo._bound = true;
+        document.addEventListener("keydown", function (e) {
+            const isUndo = (e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z");
+            if (!isUndo || !window.wmsUndo._dotNetRef) return;
+            e.preventDefault();
+            window.wmsUndo._dotNetRef.invokeMethodAsync("HandleUndoAsync");
+        });
+    }
+};

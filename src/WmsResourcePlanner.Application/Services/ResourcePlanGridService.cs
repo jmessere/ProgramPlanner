@@ -16,11 +16,13 @@ public class ResourcePlanGridService
 {
     private readonly IAppDbContext _db;
     private readonly ResourceTransformationService _engine;
+    private readonly UndoService _undo;
 
-    public ResourcePlanGridService(IAppDbContext db, ResourceTransformationService engine)
+    public ResourcePlanGridService(IAppDbContext db, ResourceTransformationService engine, UndoService undo)
     {
         _db = db;
         _engine = engine;
+        _undo = undo;
     }
 
     public async Task<List<ResourcePlanGridRow>> GetGridAsync(
@@ -90,6 +92,15 @@ public class ResourcePlanGridService
 
         var notes = existingLines.FirstOrDefault()?.Notes;
 
+        // Snapshot the pre-edit state so this change can be undone.
+        var snapshot = existingLines.Select(l => new ResourcePlanLine
+        {
+            ProgramId = l.ProgramId, ScenarioId = l.ScenarioId, TeamId = l.TeamId,
+            TeamTemplateAssignmentId = l.TeamTemplateAssignmentId, TemplatePhaseId = l.TemplatePhaseId,
+            WorkstreamId = l.WorkstreamId, FocusAreaId = l.FocusAreaId, RoleId = l.RoleId, PersonId = l.PersonId,
+            StartDate = l.StartDate, EndDate = l.EndDate, Fte = l.Fte, Notes = l.Notes
+        }).ToList();
+
         foreach (var line in existingLines)
         {
             _db.ResourcePlanLines.Remove(line);
@@ -116,6 +127,32 @@ public class ResourcePlanGridService
         }
 
         await _db.SaveChangesAsync(ct);
+
+        _undo.Push($"Resource Plan cell edit ({year}-{month:00})", async () =>
+        {
+            var current = await _db.ResourcePlanLines
+                .Where(r => r.ScenarioId == key.ScenarioId
+                    && r.TeamId == key.TeamId
+                    && r.TeamTemplateAssignmentId == key.TeamTemplateAssignmentId
+                    && r.TemplatePhaseId == key.TemplatePhaseId
+                    && r.WorkstreamId == key.WorkstreamId
+                    && r.FocusAreaId == key.FocusAreaId
+                    && r.RoleId == key.RoleId
+                    && r.PersonId == key.PersonId)
+                .ToListAsync();
+            foreach (var line in current) _db.ResourcePlanLines.Remove(line);
+            foreach (var s in snapshot)
+            {
+                _db.ResourcePlanLines.Add(new ResourcePlanLine
+                {
+                    ProgramId = s.ProgramId, ScenarioId = s.ScenarioId, TeamId = s.TeamId,
+                    TeamTemplateAssignmentId = s.TeamTemplateAssignmentId, TemplatePhaseId = s.TemplatePhaseId,
+                    WorkstreamId = s.WorkstreamId, FocusAreaId = s.FocusAreaId, RoleId = s.RoleId, PersonId = s.PersonId,
+                    StartDate = s.StartDate, EndDate = s.EndDate, Fte = s.Fte, Notes = s.Notes
+                });
+            }
+            await _db.SaveChangesAsync();
+        });
     }
 
     private static List<MonthlyValue> BuildBlankMonths(DateOnly start, DateOnly end)

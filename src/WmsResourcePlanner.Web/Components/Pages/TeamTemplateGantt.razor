@@ -14,6 +14,7 @@ else
 {
     <div class="gantt-toolbar">
         <span class="save-status">@_status</span>
+        <UndoBar OnUndone="LoadAsync" />
     </div>
     <GanttChart Bars="_bars" HorizonStart="_horizonStart" HorizonEnd="_horizonEnd"
                 GroupHeader="Team" OnBarChanged="OnAssignmentChangedAsync" />

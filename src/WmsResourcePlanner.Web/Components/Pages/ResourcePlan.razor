@@ -27,6 +27,7 @@ else
         </label>
         <span class="save-status">@_status</span>
         <button class="btn secondary" @onclick="DuplicateScenarioAsync">Duplicate Scenario</button>
+        <UndoBar OnUndone="LoadAsync" />
         <span style="margin-left:auto">60-month horizon: @_horizonStart.ToString("MMM yyyy") – @_horizonEnd.ToString("MMM yyyy")</span>
     </div>
 

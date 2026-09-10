@@ -1,0 +1,36 @@
+@implements IDisposable
+@inject WmsResourcePlanner.Application.Services.UndoService Undo
+@inject IJSRuntime JS
+
+@if (Undo.CanUndo)
+{
+    <button class="btn secondary" @onclick="HandleUndoAsync" title="Ctrl+Z">↶ Undo: @Undo.LastDescription</button>
+}
+
+@code {
+    [Parameter] public EventCallback OnUndone { get; set; }
+
+    private DotNetObjectReference<UndoBar>? _dotNetRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("wmsUndo.init", _dotNetRef);
+        }
+    }
+
+    [JSInvokable]
+    public async Task HandleUndoAsync()
+    {
+        var didUndo = await Undo.UndoAsync();
+        if (didUndo && OnUndone.HasDelegate)
+        {
+            await OnUndone.InvokeAsync();
+        }
+        StateHasChanged();
+    }
+
+    public void Dispose() => _dotNetRef?.Dispose();
+}

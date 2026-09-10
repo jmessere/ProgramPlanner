@@ -26,6 +26,7 @@ else
             </select>
         </label>
         <span class="save-status">@_status</span>
+        <UndoBar OnUndone="LoadAsync" />
     </div>
     @if (_bars.Count == 0)
     {

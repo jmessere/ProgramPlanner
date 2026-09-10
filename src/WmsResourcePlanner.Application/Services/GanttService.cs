@@ -13,10 +13,12 @@ namespace WmsResourcePlanner.Application.Services;
 public class GanttService
 {
     private readonly IAppDbContext _db;
+    private readonly UndoService _undo;
 
-    public GanttService(IAppDbContext db)
+    public GanttService(IAppDbContext db, UndoService undo)
     {
         _db = db;
+        _undo = undo;
     }
 
     // ---- Template Gantt: TemplatePhase bars grouped by Template ----
@@ -43,9 +45,19 @@ public class GanttService
         var phase = await _db.TemplatePhases.FirstOrDefaultAsync(p => p.Id == phaseId, ct);
         if (phase is null) return;
         if (end < start) end = start;
+        var (prevStart, prevEnd) = (phase.StartDate, phase.EndDate);
         phase.StartDate = start;
         phase.EndDate = end;
         await _db.SaveChangesAsync(ct);
+
+        _undo.Push($"Move/resize template phase \"{phase.Name}\"", async () =>
+        {
+            var p = await _db.TemplatePhases.FirstOrDefaultAsync(x => x.Id == phaseId);
+            if (p is null) return;
+            p.StartDate = prevStart;
+            p.EndDate = prevEnd;
+            await _db.SaveChangesAsync();
+        });
     }
 
     // ---- Team-Template Gantt: TeamTemplateAssignment bars grouped by Team ----
@@ -73,9 +85,19 @@ public class GanttService
         var assignment = await _db.TeamTemplateAssignments.FirstOrDefaultAsync(a => a.Id == assignmentId, ct);
         if (assignment is null) return;
         if (end < start) end = start;
+        var (prevStart, prevEnd) = (assignment.StartDate, assignment.EndDate);
         assignment.StartDate = start;
         assignment.EndDate = end;
         await _db.SaveChangesAsync(ct);
+
+        _undo.Push("Move/resize team-template assignment", async () =>
+        {
+            var a = await _db.TeamTemplateAssignments.FirstOrDefaultAsync(x => x.Id == assignmentId);
+            if (a is null) return;
+            a.StartDate = prevStart;
+            a.EndDate = prevEnd;
+            await _db.SaveChangesAsync();
+        });
     }
 
     // ---- Resource Gantt: ResourcePlanLine bars grouped by Person (or Team/Role if open demand) ----
@@ -115,8 +137,49 @@ public class GanttService
         var line = await _db.ResourcePlanLines.FirstOrDefaultAsync(r => r.Id == lineId, ct);
         if (line is null) return;
         if (end < start) end = start;
+        var (prevStart, prevEnd) = (line.StartDate, line.EndDate);
         line.StartDate = start;
         line.EndDate = end;
         await _db.SaveChangesAsync(ct);
+
+        _undo.Push("Move/resize resource allocation", async () =>
+        {
+            var l = await _db.ResourcePlanLines.FirstOrDefaultAsync(x => x.Id == lineId);
+            if (l is null) return;
+            l.StartDate = prevStart;
+            l.EndDate = prevEnd;
+            await _db.SaveChangesAsync();
+        });
+    }
+
+    // ---- Global Timeline: all dimensions available for flexible grouping/filtering (SPEC.md section 48) ----
+
+    public async Task<List<TimelineLine>> GetTimelineLinesAsync(int scenarioId, CancellationToken ct = default)
+    {
+        var lines = await _db.ResourcePlanLines
+            .Where(r => r.ScenarioId == scenarioId)
+            .Include(r => r.Team)
+            .Include(r => r.Role)
+            .Include(r => r.Person)
+            .Include(r => r.Workstream)
+            .Include(r => r.TeamTemplateAssignment).ThenInclude(a => a!.Template)
+            .Include(r => r.TemplatePhase).ThenInclude(p => p!.Template)
+            .ToListAsync(ct);
+
+        return lines.Select(r => new TimelineLine
+        {
+            Id = r.Id,
+            TemplateName = r.TeamTemplateAssignment?.Template?.Name ?? r.TemplatePhase?.Template?.Name,
+            PhaseName = r.TemplatePhase?.Name,
+            WorkstreamName = r.Workstream?.Name,
+            TeamName = r.Team?.Name ?? string.Empty,
+            RoleName = r.Role?.Name ?? string.Empty,
+            PersonName = r.Person?.DisplayName,
+            EmployeeType = r.Person?.EmployeeType,
+            TeamType = r.Team?.TeamType,
+            StartDate = r.StartDate,
+            EndDate = r.EndDate,
+            Fte = r.Fte
+        }).ToList();
     }
 }
