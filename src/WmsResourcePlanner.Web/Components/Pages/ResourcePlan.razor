@@ -68,22 +68,26 @@ else
                 </tr>
                 @if (_showPhaseOverlay)
                 {
-                    <tr class="overlay-row" style="height:@(HeaderRowHeight)px">
-                        <th class="frozen-col overlay-label" colspan="@FrozenColumnCount" style="left:0px;width:@(TotalFrozenWidth)px;top:@(HeaderRowHeight)px">Templates</th>
-                        @foreach (var m in _monthHeaders)
-                        {
-                            var cell = TemplateCellFor(m);
-                            <th class="month-col overlay-cell" style="top:@(HeaderRowHeight)px;@(cell is null ? "" : $"background:{cell.Color};color:#fff")" title="@cell?.Label">@cell?.Label</th>
-                        }
-                    </tr>
-                    <tr class="overlay-row" style="height:@(HeaderRowHeight)px">
-                        <th class="frozen-col overlay-label" colspan="@FrozenColumnCount" style="left:0px;width:@(TotalFrozenWidth)px;top:@(HeaderRowHeight * 2)px">Phases</th>
-                        @foreach (var m in _monthHeaders)
-                        {
-                            var cell = PhaseCellFor(m);
-                            <th class="month-col overlay-cell" style="top:@(HeaderRowHeight * 2)px;@(cell is null ? "" : $"background:{cell.Color};color:#fff")" title="@cell?.Label">@cell?.Label</th>
-                        }
-                    </tr>
+                    @foreach (var row in OverlayRows())
+                    {
+                        <tr class="overlay-row" style="height:@(HeaderRowHeight)px">
+                            @if (row.TemplateLabel is not null)
+                            {
+                                <th class="frozen-col overlay-label" rowspan="@row.TemplateRowSpan" colspan="@FrozenColumnCount" style="left:0px;width:@(TotalFrozenWidth)px;top:@(row.Top)px" title="@row.TemplateLabel">@row.TemplateLabel</th>
+                            }
+                            @foreach (var seg in row.Segments)
+                            {
+                                @if (seg.Color is null)
+                                {
+                                    <th class="month-col overlay-cell overlay-gap" colspan="@seg.Span" style="top:@(row.Top)px"></th>
+                                }
+                                else
+                                {
+                                    <th class="month-col overlay-cell" colspan="@seg.Span" style="top:@(row.Top)px;background:@(seg.Color);color:#fff" title="@seg.Title">@seg.Label</th>
+                                }
+                            }
+                        </tr>
+                    }
                 }
             </thead>
             <tbody>
@@ -475,6 +479,10 @@ else
     // ---- Optional Template/Phase overlay shown fixed at the top of the
     // grid so template and phase timelines can be visually compared against
     // the resource plan underneath, regardless of vertical scroll position.
+    // Each template gets its own row (or several, if its phases overlap in
+    // time); each phase is drawn as a single colored "merged" cell spanning
+    // its month range, not repeated per-month, matching the Gantt-style
+    // overlap/lane rule used elsewhere (GanttChart.AssignLanes).
 
     private static readonly string[] OverlayPalette =
     {
@@ -488,41 +496,92 @@ else
         return OverlayPalette[Math.Abs(hash) % OverlayPalette.Length];
     }
 
-    private sealed record OverlayCell(string Label, string Color);
+    // A month-index-spanning cell within an overlay row: Color/Label are
+    // null for an empty gap segment (rendered as a plain spacer cell).
+    private sealed record OverlaySegment(int Span, string? Label, string? Color, string? Title);
 
-    private static bool Overlaps(DateOnly? start, DateOnly? end, DateOnly monthStart, DateOnly monthEnd) =>
-        start is not null && end is not null && start.Value <= monthEnd && end.Value >= monthStart;
+    private sealed record OverlayRow(string? TemplateLabel, int TemplateRowSpan, List<OverlaySegment> Segments, int Top);
 
-    private OverlayCell? TemplateCellFor(DateOnly month)
+    // Month index of a date relative to the horizon start (can be negative
+    // or beyond the last index if the date falls outside the loaded
+    // _monthHeaders range - callers clip to [0, _monthHeaders.Count-1]).
+    private int MonthIndexOf(DateOnly date) =>
+        (date.Year - _horizonStart.Year) * 12 + (date.Month - _horizonStart.Month);
+
+    private List<OverlayRow> OverlayRows()
     {
-        var monthStart = new DateOnly(month.Year, month.Month, 1);
-        var monthEnd = monthStart.AddMonths(1).AddDays(-1);
+        var result = new List<OverlayRow>();
+        if (_monthHeaders.Count == 0) return result;
 
-        var match = _templates.FirstOrDefault(t =>
+        var rowIndex = 0;
+        foreach (var t in _templates.OrderBy(t => t.Name))
         {
-            var start = t.StartDate ?? t.Phases.Select(p => (DateOnly?)p.StartDate).OrderBy(d => d).FirstOrDefault();
-            var end = t.EndDate ?? t.Phases.Select(p => (DateOnly?)p.EndDate).OrderByDescending(d => d).FirstOrDefault();
-            return Overlaps(start, end, monthStart, monthEnd);
-        });
-
-        return match is null ? null : new OverlayCell(match.Name, ColorFor(match.Name));
-    }
-
-    private OverlayCell? PhaseCellFor(DateOnly month)
-    {
-        var monthStart = new DateOnly(month.Year, month.Month, 1);
-        var monthEnd = monthStart.AddMonths(1).AddDays(-1);
-
-        foreach (var t in _templates)
-        {
-            var phase = t.Phases.FirstOrDefault(p => Overlaps(p.StartDate, p.EndDate, monthStart, monthEnd));
-            if (phase is not null)
+            var bars = new List<(int Start, int End, string Label, string Color, string Title)>();
+            foreach (var p in t.Phases)
             {
-                return new OverlayCell($"{t.Name}: {phase.Name}", ColorFor(phase.Name));
+                var start = Math.Max(0, MonthIndexOf(p.StartDate));
+                var end = Math.Min(_monthHeaders.Count - 1, MonthIndexOf(p.EndDate));
+                if (start > end) continue; // phase falls entirely outside the current horizon
+                bars.Add((start, end, p.Name, ColorFor(p.Name), $"{t.Name}: {p.Name}"));
+            }
+            if (bars.Count == 0) continue;
+
+            bars = bars.OrderBy(b => b.Start).ToList();
+
+            // Greedy interval-partitioning lane assignment: a phase joins
+            // the first lane whose last-placed phase ends before this one
+            // starts (no time overlap); otherwise it starts a new lane.
+            // This is the same overlap rule GanttChart uses for live-edited
+            // Gantt bars, applied here at month-index granularity.
+            var laneEnds = new List<int>();
+            var lane = new int[bars.Count];
+            for (var i = 0; i < bars.Count; i++)
+            {
+                var idx = laneEnds.FindIndex(end => end < bars[i].Start);
+                if (idx == -1)
+                {
+                    laneEnds.Add(bars[i].End);
+                    lane[i] = laneEnds.Count - 1;
+                }
+                else
+                {
+                    laneEnds[idx] = bars[i].End;
+                    lane[i] = idx;
+                }
+            }
+
+            var laneCount = laneEnds.Count;
+            var laneRows = new List<List<OverlaySegment>>();
+            for (var l = 0; l < laneCount; l++)
+            {
+                var laneBars = bars.Where((b, i) => lane[i] == l).OrderBy(b => b.Start).ToList();
+                var segments = new List<OverlaySegment>();
+                var cursor = 0;
+                foreach (var bar in laneBars)
+                {
+                    if (bar.Start > cursor)
+                    {
+                        segments.Add(new OverlaySegment(bar.Start - cursor, null, null, null));
+                    }
+                    segments.Add(new OverlaySegment(bar.End - bar.Start + 1, bar.Label, bar.Color, bar.Title));
+                    cursor = bar.End + 1;
+                }
+                if (cursor < _monthHeaders.Count)
+                {
+                    segments.Add(new OverlaySegment(_monthHeaders.Count - cursor, null, null, null));
+                }
+                laneRows.Add(segments);
+            }
+
+            for (var l = 0; l < laneRows.Count; l++)
+            {
+                var top = HeaderRowHeight * (1 + rowIndex);
+                result.Add(new OverlayRow(l == 0 ? t.Name : null, laneRows.Count, laneRows[l], top));
+                rowIndex++;
             }
         }
 
-        return null;
+        return result;
     }
 }
 

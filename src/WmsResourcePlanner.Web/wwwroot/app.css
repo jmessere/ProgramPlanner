@@ -165,6 +165,14 @@ table.data-grid.frozen-grid thead tr:first-child th {
 .frozen-grid .overlay-label {
     font-weight: 600;
     color: #495057;
+    vertical-align: top;
+    padding-top: 4px;
+}
+
+/* Empty (no-phase) month span within an overlay lane row - a plain spacer
+   so merged phase bars visually stand out against the gaps around them. */
+.frozen-grid .overlay-gap {
+    background: #fff;
 }
 
 .frozen-grid .new-row td {
