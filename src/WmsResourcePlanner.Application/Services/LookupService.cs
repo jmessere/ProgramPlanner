@@ -142,6 +142,37 @@ public class LookupService
     }
 
     /// <summary>
+    /// Resolves the TeamTemplateAssignment linking a given Team and
+    /// Template, creating it (spanning the full planning horizon) if the
+    /// pair hasn't been linked before. Lets the Resource Plan grid's
+    /// Template column simply be "pick a template" - the underlying
+    /// many-to-many TeamTemplateAssignment record is inferred/created
+    /// automatically rather than requiring the user to manage assignments
+    /// as a separate concept.
+    /// </summary>
+    public async Task<TeamTemplateAssignment> GetOrCreateTeamTemplateAssignmentAsync(
+        int teamId, int templateId, DateOnly horizonStart, DateOnly horizonEnd, CancellationToken ct = default)
+    {
+        var existing = await _db.TeamTemplateAssignments.FirstOrDefaultAsync(
+            a => a.TeamId == teamId && a.TemplateId == templateId, ct);
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var created = new TeamTemplateAssignment
+        {
+            TeamId = teamId,
+            TemplateId = templateId,
+            StartDate = horizonStart,
+            EndDate = horizonEnd
+        };
+        _db.TeamTemplateAssignments.Add(created);
+        await _db.SaveChangesAsync(ct);
+        return created;
+    }
+
+    /// <summary>
     /// Global search across People, Teams, Templates, Workstreams, Roles,
     /// and Sites (SPEC.md section 56). Case-insensitive "contains" match.
     /// </summary>

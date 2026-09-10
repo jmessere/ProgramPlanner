@@ -102,9 +102,9 @@ else
                     @if (_showTemplateColumn)
                     {
                         <td class="frozen-col" style="left:@(TemplateLeft)px;width:@(TemplateColWidth)px">
-                            <select class="grid-nav-cell" @bind="_newAssignmentId">
+                            <select class="grid-nav-cell" value="@(_newTemplateId?.ToString() ?? "")" @onchange="OnNewTemplateChangedAsync">
                                 <option value="">(none)</option>
-                                @foreach (var a in _allAssignments) { <option value="@a.Id">@AssignmentLabel(a)</option> }
+                                @foreach (var t in _templates) { <option value="@t.Id">@t.Name</option> }
                             </select>
                         </td>
                     }
@@ -152,9 +152,9 @@ else
                         @if (_showTemplateColumn)
                         {
                             <td class="frozen-col" style="left:@(TemplateLeft)px;width:@(TemplateColWidth)px">
-                                <select class="grid-nav-cell" value="@(row.Key.TeamTemplateAssignmentId?.ToString() ?? "")" @onchange="e => OnRowAssignmentChangedAsync(row, e)">
+                                <select class="grid-nav-cell" value="@(TemplateIdForAssignment(row.Key.TeamTemplateAssignmentId)?.ToString() ?? "")" @onchange="e => OnRowTemplateChangedAsync(row, e)">
                                     <option value="">(none)</option>
-                                    @foreach (var a in _allAssignments) { <option value="@a.Id">@AssignmentLabel(a)</option> }
+                                    @foreach (var t in _templates) { <option value="@t.Id">@t.Name</option> }
                                 </select>
                             </td>
                         }
@@ -218,16 +218,18 @@ else
     private List<TeamTemplateAssignment> _allAssignments = new();
     private List<Template> _templates = new();
 
-    // The Template dropdown intentionally lists every TeamTemplateAssignment
-    // in the program (not just the ones belonging to the row's current
-    // team) so a row can always be freely reassigned to any team/template
-    // combination. Since assignments now span every team, the label
-    // includes the team name to disambiguate identically-named templates
-    // assigned to different teams.
-    private static string AssignmentLabel(TeamTemplateAssignment a) => $"{a.Template?.Name} ({a.Team?.Name})";
+    // The Template dropdown just lists Templates (e.g. 4 templates -> 4
+    // options) - the underlying TeamTemplateAssignment (the many-to-many
+    // link between a Team and a Template) is inferred/created on the fly
+    // from whichever Team + Template the row currently has, via
+    // LookupService.GetOrCreateTeamTemplateAssignmentAsync, rather than
+    // making the user manage assignments as a separate concept.
+    private int? TemplateIdForAssignment(int? assignmentId) => assignmentId is int id
+        ? _allAssignments.FirstOrDefault(a => a.Id == id)?.TemplateId
+        : null;
 
     private int? _newTeamId;
-    private int? _newAssignmentId;
+    private int? _newTemplateId;
     private int? _newRoleId;
     private int? _newPersonId;
     private int? _newWorkstreamId;
@@ -422,7 +424,14 @@ else
     {
         if (_newTeamId is null || _newRoleId is null || _newRowPending.Count == 0) return;
 
-        var key = new ResourcePlanRowKey(_scenarioId, _newTeamId.Value, _newAssignmentId, null, _newWorkstreamId, null, _newRoleId.Value, _newPersonId);
+        int? assignmentId = null;
+        if (_newTemplateId is not null)
+        {
+            var assignment = await Lookup.GetOrCreateTeamTemplateAssignmentAsync(_newTeamId.Value, _newTemplateId.Value, _horizonStart, _horizonEnd);
+            assignmentId = assignment.Id;
+        }
+
+        var key = new ResourcePlanRowKey(_scenarioId, _newTeamId.Value, assignmentId, null, _newWorkstreamId, null, _newRoleId.Value, _newPersonId);
         foreach (var ((year, month), fte) in _newRowPending)
         {
             await GridService.UpdateCellAsync(_programId, key, _horizonStart, _horizonEnd, year, month, fte);
@@ -432,11 +441,12 @@ else
         // Resetting these fields (rather than converting this <tr> into a
         // regular row) is what keeps a fresh, always-present blank row at
         // the top of the grid ready for the next entry.
-        _newTeamId = null; _newAssignmentId = null; _newRoleId = null; _newPersonId = null; _newWorkstreamId = null;
+        _newTeamId = null; _newTemplateId = null; _newRoleId = null; _newPersonId = null; _newWorkstreamId = null;
         _newRowBlocked = false;
         _newRowPending.Clear();
         _newRowGeneration++;
         await LoadAsync();
+        await ReloadLookupsAsync();
     }
 
     // input[type=number] always yields either an empty string or a
@@ -466,10 +476,21 @@ else
         await LoadAsync();
     }
 
-    private async Task OnRowAssignmentChangedAsync(ResourcePlanGridRow row, ChangeEventArgs e)
+    private async Task OnRowTemplateChangedAsync(ResourcePlanGridRow row, ChangeEventArgs e)
     {
         var raw = e.Value?.ToString();
-        int? assignmentId = string.IsNullOrEmpty(raw) ? null : int.Parse(raw);
+        int? assignmentId;
+        if (string.IsNullOrEmpty(raw))
+        {
+            assignmentId = null;
+        }
+        else
+        {
+            var templateId = int.Parse(raw);
+            var assignment = await Lookup.GetOrCreateTeamTemplateAssignmentAsync(row.Key.TeamId, templateId, _horizonStart, _horizonEnd);
+            assignmentId = assignment.Id;
+            await ReloadLookupsAsync();
+        }
         await GridService.UpdateRowContextAsync(row.Key, row.Key.TeamId, assignmentId, row.Key.WorkstreamId, row.Key.RoleId, row.Key.PersonId);
         _status = $"Saved at {DateTime.Now:T}";
         await LoadAsync();
@@ -510,6 +531,13 @@ else
         var (proceed, teamId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreateTeamAsync(_programId, name), t => t.Id);
         if (proceed) _newTeamId = teamId;
         if (_newTeamId is not null && _newRoleId is not null) await FlushNewRowPendingAsync();
+    }
+
+    private Task OnNewTemplateChangedAsync(ChangeEventArgs e)
+    {
+        var raw = e.Value?.ToString();
+        _newTemplateId = string.IsNullOrEmpty(raw) ? null : int.Parse(raw);
+        return Task.CompletedTask;
     }
 
     private async Task OnNewWorkstreamChangedAsync(ChangeEventArgs e)
