@@ -2101,6 +2101,46 @@ Use normal Excel techniques where practical.
 
 Users should be free to modify the Summary.
 
+## Pool / Vendor Cost & Headcount Rollups
+
+The Summary sheet also includes the following live-formula sections,
+grouped by Resource Pool and, separately, by Vendor (pools sharing the same
+Vendor rolled together):
+
+```text
+Pool Summary - Cost by Quarter
+Pool Summary - Cost by Year
+Pool Summary - Count by Quarter
+Pool Summary - Count by Year
+Vendor Summary - Cost by Quarter
+Vendor Summary - Cost by Year
+```
+
+Each of these has three variants: **Allocated Only** (named Person rows),
+**Demand Only** (open-demand rows), and **Both** (combined). Each is a grid
+with one row per pool (or vendor) and one column per quarter/year, plus a
+Total row summing all pools/vendors for that period.
+
+Assumptions:
+
+* Capacity is 2080 hours/year (2080/12 per month, 2080/4 per quarter).
+* Cost = sum of a row's monthly FTE across the period, times per-month
+  capacity hours, times the pool's Average Rate.
+* Count treats 1.0 as a single FTE (e.g. two people at 0.5 FTE in the same
+  period sum to a count of 1); a row's quarterly count is the average FTE
+  across that quarter's months, and a yearly count is the average of its
+  quarters.
+* A filled row's effective pool is its Person's own Resource Pool; an
+  open-demand row's effective pool is its own Pool column. Year figures are
+  derived from the quarter figures (summed for cost, averaged for count)
+  rather than recomputed from scratch.
+
+All figures are formulas (`SUMIFS`/`VLOOKUP`/`SUM`/`AVERAGE`) referencing a
+handful of hidden helper columns added to the end of the Resource Plan
+sheet (Effective Pool/Vendor/Hourly Rate, plus one Cost and one Count
+helper column per quarter) and the Reference Data sheet's People and
+Resource Pools tables - never static snapshot values.
+
 ---
 
 # 77. Custom Excel Analysis

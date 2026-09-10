@@ -50,13 +50,15 @@ public class ExcelExportService
             cursor = cursor.AddMonths(1);
         }
 
+        var pools = await _db.ResourcePools.OrderBy(p => p.Name).ToListAsync(ct);
+
         using var workbook = new XLWorkbook();
 
         BuildInstructionsSheet(workbook);
         BuildResourcePlanSheet(workbook, monthly, sample, months);
         await BuildTemplatePlanSheetAsync(workbook, months, ct);
-        await BuildReferenceDataSheetAsync(workbook, ct);
-        BuildSummarySheet(workbook, months, lines);
+        var refCols = await BuildReferenceDataSheetAsync(workbook, pools, ct);
+        BuildSummarySheet(workbook, months, lines, pools, refCols);
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
@@ -73,7 +75,7 @@ public class ExcelExportService
         ws.Cell(5, 1).Value = "A populated Person means a named allocation. A blank Person means open (unfilled) demand; its Pool column names the proposed sourcing pool.";
         ws.Cell(6, 1).Value = "Template Plan: template phases with their date ranges, filterable, and a monthly timeline where an \"X\" marks the phase's active months (colored like a Gantt bar). Team assignments are not shown here - they are implied by the Team values already present on the Resource Plan sheet.";
         ws.Cell(7, 1).Value = "Reference Data: master lists (people, teams, roles, templates, workstreams, etc.).";
-        ws.Cell(8, 1).Value = "Summary: filled/open FTE by month, gaps by role/team/template, and overallocated people.";
+        ws.Cell(8, 1).Value = "Summary: filled/open FTE by month, gaps by role/team/template, overallocated people, and Pool/Vendor cost & headcount rollups by quarter and year (all live formulas).";
         ws.Columns().AdjustToContents();
     }
 
@@ -222,11 +224,18 @@ public class ExcelExportService
     }
 
 
-    private async Task BuildReferenceDataSheetAsync(XLWorkbook workbook, CancellationToken ct)
+    /// <summary>Column positions of key Reference Data tables, captured while
+    /// building that sheet so the Summary sheet can build live VLOOKUP
+    /// formulas against them instead of hardcoding column numbers that would
+    /// silently drift if the reference table order/width ever changes.</summary>
+    private readonly record struct ReferenceDataColumns(int PeopleCol, int ResourcePoolsCol);
+
+    private async Task<ReferenceDataColumns> BuildReferenceDataSheetAsync(XLWorkbook workbook, List<ResourcePool> pools, CancellationToken ct)
     {
         var ws = workbook.Worksheets.Add("Reference Data");
         var col = 1;
 
+        var peopleCol = col;
         col = WriteTable(ws, col, "People", (await _db.People.Include(p => p.ResourcePool).OrderBy(p => p.DisplayName).ToListAsync(ct))
             .Select(p => new[] { p.DisplayName, p.ResourcePool?.Name ?? string.Empty, p.DefaultCapacityFte.ToString("0.##") }), new[] { "Name", "Resource Pool", "Capacity FTE" });
 
@@ -248,11 +257,14 @@ public class ExcelExportService
         col = WriteTable(ws, col, "Sites", (await _db.Sites.OrderBy(s => s.Name).ToListAsync(ct))
             .Select(s => new[] { s.Name, s.Region ?? string.Empty }), new[] { "Name", "Region" });
 
-        col = WriteTable(ws, col, "Resource Pools", (await _db.ResourcePools.OrderBy(p => p.Name).ToListAsync(ct))
+        var resourcePoolsCol = col;
+        col = WriteTable(ws, col, "Resource Pools", pools
             .Select(p => new[] { p.Name, p.Type.ToString(), p.CostCenter ?? string.Empty, p.AverageRate.ToString("0.00"), p.Vendor ?? string.Empty, p.Notes ?? string.Empty }),
             new[] { "Name", "Type", "Cost Center", "Average Rate", "Vendor", "Notes" });
 
         ws.Columns().AdjustToContents();
+
+        return new ReferenceDataColumns(peopleCol, resourcePoolsCol);
     }
 
     private static int WriteTable(IXLWorksheet ws, int startCol, string title, IEnumerable<string[]> rows, string[] headers)
@@ -286,6 +298,7 @@ public class ExcelExportService
     private const int RpTeamCol = 5;
     private const int RpRoleCol = 6;
     private const int RpPersonCol = 7;
+    private const int RpPoolCol = 8;
     private const int RpFirstMonthCol = 10;
 
     // A generous fixed row bound (rather than a true whole-column
@@ -293,7 +306,7 @@ public class ExcelExportService
     // month date serial - are never swept into the sums below.
     private const int RpMaxDataRow = 100000;
 
-    private void BuildSummarySheet(XLWorkbook workbook, List<DateOnly> months, List<ResourcePlanLine> lines)
+    private void BuildSummarySheet(XLWorkbook workbook, List<DateOnly> months, List<ResourcePlanLine> lines, List<ResourcePool> pools, ReferenceDataColumns refCols)
     {
         var ws = workbook.Worksheets.Add("Summary");
         var rpWs = workbook.Worksheet("Resource Plan");
@@ -362,7 +375,286 @@ public class ExcelExportService
             row++;
         }
 
+        row += 2;
+        BuildPoolAndVendorSections(ws, rpWs, ref row, months, lines, pools, refCols, rpLastRow, ColLetter, RpRange, personRange);
+
         ws.Columns().AdjustToContents();
+    }
+
+    // ---------------------------------------------------------------------
+    // Pool / Vendor cost & headcount rollups (Summary sheet additions).
+    //
+    // Every figure here is a live formula, never a snapshot value, so the
+    // workbook stays correct if a user edits the Resource Plan sheet
+    // directly. To make that possible without repeating rate/quarter logic
+    // in every single cell, a handful of hidden helper columns are added to
+    // the end of the Resource Plan sheet:
+    //   - Effective Pool: the row's own Pool for open demand, or the named
+    //     Person's own Resource Pool (looked up from Reference Data) once
+    //     a Person is assigned.
+    //   - Effective Vendor / Effective Hourly Rate: looked up from the
+    //     Resource Pools reference table using the Effective Pool.
+    //   - One "<Quarter> Cost" and one "<Quarter> Count" column per
+    //     calendar quarter in the horizon: Cost assumes 2080 hours/year
+    //     (520/quarter, i.e. 2080/12 per month) times the row's monthly FTE
+    //     and hourly rate; Count is simply the row's average FTE across the
+    //     quarter's months (so 2 people at 0.5 FTE = headcount of 1).
+    // Year figures reuse the quarter helper columns: cost sums the year's
+    // quarters, count averages them.
+    // ---------------------------------------------------------------------
+    private void BuildPoolAndVendorSections(
+        IXLWorksheet ws,
+        IXLWorksheet rpWs,
+        ref int rowRef,
+        List<DateOnly> months,
+        List<ResourcePlanLine> lines,
+        List<ResourcePool> pools,
+        ReferenceDataColumns refCols,
+        int rpLastRow,
+        Func<int, string> colLetter,
+        Func<int, string> rpRange,
+        string personRange)
+    {
+        // row is a ref parameter and can't be captured by the local
+        // functions below (SectionTitle/SubTitle/WriteMatrix), so all work
+        // happens against this local copy, which is written back at the end.
+        var row = rowRef;
+
+        var rowTotalCol = RpFirstMonthCol + months.Count;
+        var effPoolCol = rowTotalCol + 1;
+        var effVendorCol = rowTotalCol + 2;
+        var effRateCol = rowTotalCol + 3;
+
+        rpWs.Cell(1, effPoolCol).Value = "Effective Pool";
+        rpWs.Cell(1, effVendorCol).Value = "Effective Vendor";
+        rpWs.Cell(1, effRateCol).Value = "Effective Hourly Rate";
+        rpWs.Row(1).Style.Font.SetBold();
+
+        var personColLetter = colLetter(RpPersonCol);
+        var poolColLetter = colLetter(RpPoolCol);
+        var effPoolColLetter = colLetter(effPoolCol);
+        var effRateColLetter = colLetter(effRateCol);
+
+        var peopleRange = $"'Reference Data'!${colLetter(refCols.PeopleCol)}$3:${colLetter(refCols.PeopleCol + 1)}${RpMaxDataRow}";
+        var poolsLookupRange = $"'Reference Data'!${colLetter(refCols.ResourcePoolsCol)}$3:${colLetter(refCols.ResourcePoolsCol + 5)}${RpMaxDataRow}";
+
+        for (var r = 2; r <= rpLastRow; r++)
+        {
+            rpWs.Cell(r, effPoolCol).FormulaA1 =
+                $"=IF(${personColLetter}{r}<>\"\",IFERROR(VLOOKUP(${personColLetter}{r},{peopleRange},2,FALSE),\"\"),${poolColLetter}{r})";
+            rpWs.Cell(r, effRateCol).FormulaA1 =
+                $"=IF(${effPoolColLetter}{r}<>\"\",IFERROR(VLOOKUP(${effPoolColLetter}{r},{poolsLookupRange},4,FALSE),0),0)";
+            rpWs.Cell(r, effVendorCol).FormulaA1 =
+                $"=IF(${effPoolColLetter}{r}<>\"\",IFERROR(VLOOKUP(${effPoolColLetter}{r},{poolsLookupRange},5,FALSE),\"\"),\"\")";
+        }
+        rpWs.Range(2, effRateCol, Math.Max(2, rpLastRow), effRateCol).Style.NumberFormat.Format = "$#,##0.00";
+
+        var quarters = months
+            .Select(m => (Year: m.Year, Quarter: (m.Month - 1) / 3 + 1))
+            .Distinct()
+            .OrderBy(q => q.Year).ThenBy(q => q.Quarter)
+            .ToList();
+        var quarterMonthIdx = quarters
+            .Select(q => months
+                .Select((m, i) => (m, i))
+                .Where(x => x.m.Year == q.Year && (x.m.Month - 1) / 3 + 1 == q.Quarter)
+                .Select(x => x.i)
+                .ToList())
+            .ToList();
+        var years = months.Select(m => m.Year).Distinct().OrderBy(y => y).ToList();
+        var yearQuarterIdx = years
+            .Select(y => quarters.Select((q, i) => (q, i)).Where(x => x.q.Year == y).Select(x => x.i).ToList())
+            .ToList();
+
+        var quarterCostCol = new int[quarters.Count];
+        var quarterCountCol = new int[quarters.Count];
+        var nextCol = effRateCol + 1;
+        for (var q = 0; q < quarters.Count; q++) quarterCostCol[q] = nextCol++;
+        for (var q = 0; q < quarters.Count; q++) quarterCountCol[q] = nextCol++;
+
+        var quarterLabels = quarters.Select(q => $"Q{q.Quarter} {q.Year}").ToList();
+
+        for (var q = 0; q < quarters.Count; q++)
+        {
+            rpWs.Cell(1, quarterCostCol[q]).Value = $"{quarterLabels[q]} Cost (helper)";
+            rpWs.Cell(1, quarterCountCol[q]).Value = $"{quarterLabels[q]} Count (helper)";
+        }
+
+        for (var r = 2; r <= rpLastRow; r++)
+        {
+            for (var q = 0; q < quarters.Count; q++)
+            {
+                var idxs = quarterMonthIdx[q];
+                var monthRange = $"{colLetter(RpFirstMonthCol + idxs[0])}{r}:{colLetter(RpFirstMonthCol + idxs[^1])}{r}";
+                rpWs.Cell(r, quarterCostCol[q]).FormulaA1 = $"=SUM({monthRange})*(2080/12)*${effRateColLetter}{r}";
+                rpWs.Cell(r, quarterCountCol[q]).FormulaA1 = $"=AVERAGE({monthRange})";
+            }
+        }
+
+        if (quarters.Count > 0)
+        {
+            rpWs.Range(2, quarterCostCol[0], Math.Max(2, rpLastRow), quarterCostCol[^1]).Style.NumberFormat.Format = "$#,##0";
+            rpWs.Range(2, quarterCountCol[0], Math.Max(2, rpLastRow), quarterCountCol[^1]).Style.NumberFormat.Format = "0.00";
+            rpWs.Columns(effPoolCol, quarterCountCol[^1]).Hide();
+        }
+        else
+        {
+            rpWs.Columns(effPoolCol, effRateCol).Hide();
+        }
+
+        string QCostRange(int q) => rpRange(quarterCostCol[q]);
+        string QCountRange(int q) => rpRange(quarterCountCol[q]);
+        var effPoolRange = rpRange(effPoolCol);
+
+        string PersonCriteria(string mode) => mode switch
+        {
+            "Allocated" => $",{personRange},\"<>\"",
+            "Demand" => $",{personRange},\"\"",
+            _ => string.Empty
+        };
+
+        string PoolQuarterFormula(string range, int poolRowNum, string mode) =>
+            $"=SUMIFS({range},{effPoolRange},$A{poolRowNum}{PersonCriteria(mode)})";
+
+        string PoolYearFormula(Func<int, string> rangeForQuarter, int poolRowNum, int yearIdx, string mode, bool average)
+        {
+            var qIdxs = yearQuarterIdx[yearIdx];
+            var parts = qIdxs.Select(q => $"SUMIFS({rangeForQuarter(q)},{effPoolRange},$A{poolRowNum}{PersonCriteria(mode)})");
+            var sum = string.Join("+", parts);
+            return average ? $"=({sum})/{Math.Max(1, qIdxs.Count)}" : $"={sum}";
+        }
+
+        void SectionTitle(string text)
+        {
+            ws.Cell(row, 1).Value = text;
+            ws.Cell(row, 1).Style.Font.SetBold().Font.SetFontSize(13);
+            row++;
+        }
+
+        void SubTitle(string text)
+        {
+            ws.Cell(row, 1).Value = text;
+            ws.Cell(row, 1).Style.Font.SetBold().Font.SetItalic();
+            row++;
+        }
+
+        // Writes one "labels x periods" grid with a Total row at the
+        // bottom, and returns the Summary-sheet cell address (e.g.
+        // "$C$15") of every data cell so the Vendor tables can sum the
+        // exact rows belonging to their member pools out of the matching
+        // Pool table, rather than re-deriving totals from scratch.
+        string[,] WriteMatrix(List<string> labels, string labelHeader, List<string> periodLabels, Func<int, int, int, string> formula, string numberFormat)
+        {
+            ws.Cell(row, 1).Value = labelHeader;
+            for (var j = 0; j < periodLabels.Count; j++) ws.Cell(row, 2 + j).Value = periodLabels[j];
+            ws.Row(row).Style.Font.SetBold();
+            row++;
+
+            var addrs = new string[labels.Count, periodLabels.Count];
+            var firstDataRow = row;
+            for (var i = 0; i < labels.Count; i++)
+            {
+                ws.Cell(row, 1).Value = labels[i];
+                for (var j = 0; j < periodLabels.Count; j++)
+                {
+                    var cell = ws.Cell(row, 2 + j);
+                    cell.FormulaA1 = formula(i, j, row);
+                    cell.Style.NumberFormat.Format = numberFormat;
+                    addrs[i, j] = $"${cell.Address.ColumnLetter}${row}";
+                }
+                row++;
+            }
+
+            ws.Cell(row, 1).Value = "Total";
+            ws.Cell(row, 1).Style.Font.SetBold();
+            for (var j = 0; j < periodLabels.Count; j++)
+            {
+                var cell = ws.Cell(row, 2 + j);
+                if (labels.Count > 0)
+                {
+                    var colLetterForTotal = ws.Cell(firstDataRow, 2 + j).Address.ColumnLetter;
+                    cell.FormulaA1 = $"=SUM({colLetterForTotal}{firstDataRow}:{colLetterForTotal}{row - 1})";
+                }
+                else
+                {
+                    cell.Value = 0;
+                }
+                cell.Style.NumberFormat.Format = numberFormat;
+            }
+            row += 2;
+
+            return addrs;
+        }
+
+        var poolNames = pools.Select(p => p.Name).ToList();
+        var vendorGroups = pools
+            .Where(p => !string.IsNullOrWhiteSpace(p.Vendor))
+            .GroupBy(p => p.Vendor!.Trim(), StringComparer.OrdinalIgnoreCase)
+            .OrderBy(g => g.Key)
+            .ToList();
+        var vendorNames = vendorGroups.Select(g => g.Key).ToList();
+        var vendorMemberPoolIdx = vendorGroups
+            .Select(g => g.Select(p => poolNames.IndexOf(p.Name)).Where(i => i >= 0).ToList())
+            .ToList();
+
+        string VendorFormulaFromPool(string[,] poolAddrs, int vendorIdx, int periodIdx)
+        {
+            var members = vendorMemberPoolIdx[vendorIdx];
+            if (members.Count == 0) return "=0";
+            return "=" + string.Join("+", members.Select(pi => poolAddrs[pi, periodIdx]));
+        }
+
+        var yearLabels = years.Select(y => y.ToString()).ToList();
+
+        SectionTitle("Pool Summary - Cost by Quarter");
+        SubTitle("Allocated Only");
+        var poolCostQAllocated = WriteMatrix(poolNames, "Pool", quarterLabels, (i, j, r) => PoolQuarterFormula(QCostRange(j), r, "Allocated"), "$#,##0");
+        SubTitle("Demand Only");
+        var poolCostQDemand = WriteMatrix(poolNames, "Pool", quarterLabels, (i, j, r) => PoolQuarterFormula(QCostRange(j), r, "Demand"), "$#,##0");
+        SubTitle("Both (Allocated + Demand)");
+        var poolCostQBoth = WriteMatrix(poolNames, "Pool", quarterLabels, (i, j, r) => PoolQuarterFormula(QCostRange(j), r, "Both"), "$#,##0");
+
+        SectionTitle("Pool Summary - Cost by Year");
+        SubTitle("Allocated Only");
+        var poolCostYAllocated = WriteMatrix(poolNames, "Pool", yearLabels, (i, j, r) => PoolYearFormula(QCostRange, r, j, "Allocated", average: false), "$#,##0");
+        SubTitle("Demand Only");
+        var poolCostYDemand = WriteMatrix(poolNames, "Pool", yearLabels, (i, j, r) => PoolYearFormula(QCostRange, r, j, "Demand", average: false), "$#,##0");
+        SubTitle("Both (Allocated + Demand)");
+        var poolCostYBoth = WriteMatrix(poolNames, "Pool", yearLabels, (i, j, r) => PoolYearFormula(QCostRange, r, j, "Both", average: false), "$#,##0");
+
+        SectionTitle("Pool Summary - Count by Quarter");
+        SubTitle("Allocated Only");
+        WriteMatrix(poolNames, "Pool", quarterLabels, (i, j, r) => PoolQuarterFormula(QCountRange(j), r, "Allocated"), "0.00");
+        SubTitle("Demand Only");
+        WriteMatrix(poolNames, "Pool", quarterLabels, (i, j, r) => PoolQuarterFormula(QCountRange(j), r, "Demand"), "0.00");
+        SubTitle("Both (Allocated + Demand)");
+        WriteMatrix(poolNames, "Pool", quarterLabels, (i, j, r) => PoolQuarterFormula(QCountRange(j), r, "Both"), "0.00");
+
+        SectionTitle("Pool Summary - Count by Year");
+        SubTitle("Allocated Only");
+        WriteMatrix(poolNames, "Pool", yearLabels, (i, j, r) => PoolYearFormula(QCountRange, r, j, "Allocated", average: true), "0.00");
+        SubTitle("Demand Only");
+        WriteMatrix(poolNames, "Pool", yearLabels, (i, j, r) => PoolYearFormula(QCountRange, r, j, "Demand", average: true), "0.00");
+        SubTitle("Both (Allocated + Demand)");
+        WriteMatrix(poolNames, "Pool", yearLabels, (i, j, r) => PoolYearFormula(QCountRange, r, j, "Both", average: true), "0.00");
+
+        SectionTitle("Vendor Summary - Cost by Quarter");
+        SubTitle("Allocated Only");
+        WriteMatrix(vendorNames, "Vendor", quarterLabels, (i, j, r) => VendorFormulaFromPool(poolCostQAllocated, i, j), "$#,##0");
+        SubTitle("Demand Only");
+        WriteMatrix(vendorNames, "Vendor", quarterLabels, (i, j, r) => VendorFormulaFromPool(poolCostQDemand, i, j), "$#,##0");
+        SubTitle("Both (Allocated + Demand)");
+        WriteMatrix(vendorNames, "Vendor", quarterLabels, (i, j, r) => VendorFormulaFromPool(poolCostQBoth, i, j), "$#,##0");
+
+        SectionTitle("Vendor Summary - Cost by Year");
+        SubTitle("Allocated Only");
+        WriteMatrix(vendorNames, "Vendor", yearLabels, (i, j, r) => VendorFormulaFromPool(poolCostYAllocated, i, j), "$#,##0");
+        SubTitle("Demand Only");
+        WriteMatrix(vendorNames, "Vendor", yearLabels, (i, j, r) => VendorFormulaFromPool(poolCostYDemand, i, j), "$#,##0");
+        SubTitle("Both (Allocated + Demand)");
+        WriteMatrix(vendorNames, "Vendor", yearLabels, (i, j, r) => VendorFormulaFromPool(poolCostYBoth, i, j), "$#,##0");
+
+        rowRef = row;
     }
 }
 

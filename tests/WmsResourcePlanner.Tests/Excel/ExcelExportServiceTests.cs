@@ -177,4 +177,98 @@ public class ExcelExportServiceTests
         Assert.Equal("Row Total FTE", rpSheet.Cell(1, 22).GetString());
         Assert.True(rpSheet.Cell(2, 22).HasFormula);
     }
+
+    [Fact]
+    public async Task ExportAsync_SummarySheet_IncludesPoolAndVendorCostAndCountSections()
+    {
+        using var db = TestDbFactory.Create();
+        var program = new Program { Name = "P" };
+        db.Programs.Add(program);
+        await db.SaveChangesAsync();
+
+        var scenario = new PlanningScenario { ProgramId = program.Id, Name = "Baseline", IsBaseline = true };
+        var role = new Role { ProgramId = program.Id, Name = "BA" };
+        var team = new Team { ProgramId = program.Id, Name = "Inbound T1", TeamType = "Template Build" };
+        var poolA = new ResourcePool { ProgramId = program.Id, Name = "Internal FTE", Type = ResourcePoolType.Internal, AverageRate = 80m, Vendor = null };
+        var poolB = new ResourcePool { ProgramId = program.Id, Name = "Acme Contractors", Type = ResourcePoolType.External, AverageRate = 120m, Vendor = "Acme Corp" };
+        db.PlanningScenarios.Add(scenario);
+        db.Roles.Add(role);
+        db.Teams.Add(team);
+        db.ResourcePools.AddRange(poolA, poolB);
+        var person = new Person { ProgramId = program.Id, FirstName = "Jane", LastName = "Smith", DisplayName = "Jane Smith", ResourcePool = poolA };
+        db.People.Add(person);
+        await db.SaveChangesAsync();
+
+        db.ResourcePlanLines.AddRange(
+            new ResourcePlanLine
+            {
+                ProgramId = program.Id, ScenarioId = scenario.Id, TeamId = team.Id, RoleId = role.Id, PersonId = person.Id,
+                StartDate = new DateOnly(2027, 1, 1), EndDate = new DateOnly(2027, 6, 30), Fte = 1.0m
+            },
+            new ResourcePlanLine
+            {
+                ProgramId = program.Id, ScenarioId = scenario.Id, TeamId = team.Id, RoleId = role.Id, PersonId = null,
+                ResourcePoolId = poolB.Id,
+                StartDate = new DateOnly(2027, 1, 1), EndDate = new DateOnly(2027, 6, 30), Fte = 0.5m
+            });
+        await db.SaveChangesAsync();
+
+        var sut = new ExcelExportService(db, new ResourceTransformationService());
+        var bytes = await sut.ExportAsync(scenario.Id, new DateOnly(2027, 1, 1), new DateOnly(2027, 12, 31));
+        using var stream = new MemoryStream(bytes);
+        using var workbook = new ClosedXML.Excel.XLWorkbook(stream);
+
+        var summary = workbook.Worksheet("Summary");
+        var allText = string.Join("\n", summary.CellsUsed().Select(c => c.GetString()));
+
+        Assert.Contains("Pool Summary - Cost by Quarter", allText);
+        Assert.Contains("Pool Summary - Cost by Year", allText);
+        Assert.Contains("Pool Summary - Count by Quarter", allText);
+        Assert.Contains("Pool Summary - Count by Year", allText);
+        Assert.Contains("Vendor Summary - Cost by Quarter", allText);
+        Assert.Contains("Vendor Summary - Cost by Year", allText);
+        Assert.Contains("Internal FTE", allText);
+        Assert.Contains("Acme Corp", allText);
+
+        // Every non-label data cell in these sections must be a live formula, not a static value.
+        var formulaCellCount = summary.CellsUsed(c => c.HasFormula).Count();
+        Assert.True(formulaCellCount > 20, "Expected many formula cells across the Filled/Open FTE and Pool/Vendor summary sections.");
+
+        // Resource Plan sheet should carry the new hidden helper columns.
+        var rpSheet = workbook.Worksheet("Resource Plan");
+        var headerRow1 = rpSheet.Row(1).CellsUsed().Select(c => c.GetString()).ToList();
+        Assert.Contains("Effective Pool", headerRow1);
+        Assert.Contains("Effective Vendor", headerRow1);
+        Assert.Contains("Effective Hourly Rate", headerRow1);
+
+        // Force ClosedXML's formula engine to evaluate every formula in the
+        // workbook so a structurally-broken formula (mismatched parens,
+        // bad range, etc.) surfaces as a hard failure here rather than only
+        // when a real user opens the file in Excel.
+        workbook.RecalculateAllFormulas();
+        var errorCells = workbook.Worksheets
+            .SelectMany(w => w.CellsUsed(c => c.HasFormula))
+            .Where(c => c.CachedValue is ClosedXML.Excel.XLError)
+            .Select(c => $"{c.Worksheet.Name}!{c.Address}: {c.FormulaA1} => {c.CachedValue}")
+            .ToList();
+        Assert.True(errorCells.Count == 0, "Formula errors found:\n" + string.Join("\n", errorCells));
+
+        // Numeric correctness check: Q1 2027 (Jan-Mar) cost, "Both" variant
+        // of the first Pool-Cost-by-Quarter table.
+        //   Internal FTE (Jane, 1.0 FTE, $80/hr): 3 months * (2080/12) * 80 = 41,600
+        //   Acme Contractors (open demand, 0.5 FTE, $120/hr): 3 * (2080/12) * 0.5 * 120 = 31,200
+        var bothSubtitleRow = summary.RowsUsed()
+            .First(r => r.Cell(1).GetString() == "Both (Allocated + Demand)")
+            .RowNumber();
+        var firstDataRow = bothSubtitleRow + 2; // subtitle row, then header row, then data
+        var internalFteRow = Enumerable.Range(firstDataRow, 10)
+            .Select(r => summary.Row(r))
+            .First(r => r.Cell(1).GetString() == "Internal FTE");
+        var acmeRow = Enumerable.Range(firstDataRow, 10)
+            .Select(r => summary.Row(r))
+            .First(r => r.Cell(1).GetString() == "Acme Contractors");
+
+        Assert.Equal(41600d, (double)internalFteRow.Cell(2).CachedValue.GetNumber(), 1);
+        Assert.Equal(31200d, (double)acmeRow.Cell(2).CachedValue.GetNumber(), 1);
+    }
 }
