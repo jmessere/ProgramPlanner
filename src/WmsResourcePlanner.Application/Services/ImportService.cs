@@ -33,6 +33,7 @@ public class ImportService
         var existingPeople = await _db.People.Where(t => t.ProgramId == programId).Select(t => t.DisplayName.ToLower()).ToListAsync(ct);
         var existingWorkstreams = await _db.Workstreams.Where(t => t.ProgramId == programId).Select(t => t.Name.ToLower()).ToListAsync(ct);
         var existingTemplates = await _db.Templates.Where(t => t.ProgramId == programId).Select(t => t.Name.ToLower()).ToListAsync(ct);
+        var existingFocusAreas = await _db.FocusAreas.Where(t => t.ProgramId == programId).Select(t => t.Name.ToLower()).ToListAsync(ct);
 
         var items = new List<ImportPreviewItem>();
         foreach (var row in rows)
@@ -51,6 +52,7 @@ public class ImportService
                 IsNewRole = !string.IsNullOrWhiteSpace(row.RoleName) && !existingRoles.Contains(row.RoleName.Trim().ToLower()),
                 IsNewPerson = !string.IsNullOrWhiteSpace(row.PersonName) && !existingPeople.Contains(row.PersonName!.Trim().ToLower()),
                 IsNewWorkstream = !string.IsNullOrWhiteSpace(row.WorkstreamName) && !existingWorkstreams.Contains(row.WorkstreamName!.Trim().ToLower()),
+                IsNewFocusArea = !string.IsNullOrWhiteSpace(row.FocusAreaName) && !existingFocusAreas.Contains(row.FocusAreaName!.Trim().ToLower()),
                 IsNewTemplate = !string.IsNullOrWhiteSpace(row.TemplateName) && !existingTemplates.Contains(row.TemplateName!.Trim().ToLower())
             };
 
@@ -93,6 +95,9 @@ public class ImportService
             var workstream = string.IsNullOrWhiteSpace(row.WorkstreamName)
                 ? null
                 : await _lookup.GetOrCreateWorkstreamAsync(programId, row.WorkstreamName!, ct);
+            var focusArea = string.IsNullOrWhiteSpace(row.FocusAreaName)
+                ? null
+                : await _lookup.GetOrCreateFocusAreaAsync(programId, row.FocusAreaName!, workstream?.Id, ct);
 
             int? teamTemplateAssignmentId = null;
             int? templatePhaseId = null;
@@ -133,7 +138,7 @@ public class ImportService
 
             var key = new ResourcePlanRowKey(
                 scenarioId, team.Id, teamTemplateAssignmentId, templatePhaseId,
-                workstream?.Id, null, role.Id, person?.Id);
+                workstream?.Id, focusArea?.Id, role.Id, person?.Id);
 
             var existingLines = await _db.ResourcePlanLines
                 .Where(r => r.ScenarioId == key.ScenarioId
@@ -164,6 +169,7 @@ public class ImportService
                     TeamTemplateAssignmentId = key.TeamTemplateAssignmentId,
                     TemplatePhaseId = key.TemplatePhaseId,
                     WorkstreamId = key.WorkstreamId,
+                    FocusAreaId = key.FocusAreaId,
                     RoleId = key.RoleId,
                     PersonId = key.PersonId,
                     StartDate = range.StartDate,

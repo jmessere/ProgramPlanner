@@ -11,6 +11,7 @@ public class ImportRow
     public string? TemplateName { get; set; }
     public string? PhaseName { get; set; }
     public string? WorkstreamName { get; set; }
+    public string? FocusAreaName { get; set; }
     public string TeamName { get; set; } = string.Empty;
     public string RoleName { get; set; } = string.Empty;
     public string? PersonName { get; set; }
@@ -39,6 +40,7 @@ public class ImportPreviewItem
     public bool IsNewPerson { get; set; }
     public bool IsNewRole { get; set; }
     public bool IsNewWorkstream { get; set; }
+    public bool IsNewFocusArea { get; set; }
     public bool IsNewTemplate { get; set; }
     public bool IsOpenDemand { get; set; }
     public string MonthSummary { get; set; } = string.Empty;

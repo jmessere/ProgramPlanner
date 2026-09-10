@@ -32,6 +32,7 @@ public class ExcelExportService
             .Include(r => r.Role)
             .Include(r => r.Person)
             .Include(r => r.Workstream)
+            .Include(r => r.FocusArea)
             .Include(r => r.TeamTemplateAssignment).ThenInclude(a => a!.Template)
             .Include(r => r.TemplatePhase).ThenInclude(p => p!.Template)
             .ToListAsync(ct);
@@ -83,7 +84,7 @@ public class ExcelExportService
     {
         var ws = workbook.Worksheets.Add("Resource Plan");
 
-        string[] fixedHeaders = { "Template", "Phase", "Workstream", "Team", "Role", "Person", "Notes" };
+        string[] fixedHeaders = { "Template", "Phase", "Workstream", "Focus Area", "Team", "Role", "Person", "Notes" };
         for (var i = 0; i < fixedHeaders.Length; i++)
         {
             ws.Cell(1, i + 1).Value = fixedHeaders[i];
@@ -111,10 +112,11 @@ public class ExcelExportService
             ws.Cell(row, 1).Value = templateName;
             ws.Cell(row, 2).Value = s.TemplatePhase?.Name;
             ws.Cell(row, 3).Value = s.Workstream?.Name;
-            ws.Cell(row, 4).Value = s.Team?.Name;
-            ws.Cell(row, 5).Value = s.Role?.Name;
-            ws.Cell(row, 6).Value = s.Person?.DisplayName;
-            ws.Cell(row, 7).Value = s.Notes;
+            ws.Cell(row, 4).Value = s.FocusArea?.Name;
+            ws.Cell(row, 5).Value = s.Team?.Name;
+            ws.Cell(row, 6).Value = s.Role?.Name;
+            ws.Cell(row, 7).Value = s.Person?.DisplayName;
+            ws.Cell(row, 8).Value = s.Notes;
 
             for (var i = 0; i < values.Count; i++)
             {

@@ -56,8 +56,8 @@ public class ExcelExportServiceTests
         Assert.Contains("Summary", sheetNames);
 
         var rpSheet = workbook.Worksheet("Resource Plan");
-        Assert.Equal("Jane Smith", rpSheet.Cell(2, 6).GetString());
-        // Jan column is column 8 (7 fixed headers + 1); value should be 1.0
-        Assert.Equal(1.0, rpSheet.Cell(2, 8).GetDouble());
+        Assert.Equal("Jane Smith", rpSheet.Cell(2, 7).GetString());
+        // Jan column is column 9 (8 fixed headers + 1); value should be 1.0
+        Assert.Equal(1.0, rpSheet.Cell(2, 9).GetDouble());
     }
 }

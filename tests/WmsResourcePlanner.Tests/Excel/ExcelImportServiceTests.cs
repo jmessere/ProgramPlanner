@@ -21,15 +21,20 @@ public class ExcelImportServiceTests
         var role = new Role { ProgramId = program.Id, Name = "BA" };
         var team = new Team { ProgramId = program.Id, Name = "Inbound T1", TeamType = "Template Build" };
         var person = new Person { ProgramId = program.Id, FirstName = "Jane", LastName = "Smith", DisplayName = "Jane Smith" };
+        var workstream = new Workstream { ProgramId = program.Id, Name = "Inbound" };
+        var focusArea = new FocusArea { ProgramId = program.Id, Name = "AutoStore" };
         db.PlanningScenarios.Add(scenario);
         db.Roles.Add(role);
         db.Teams.Add(team);
         db.People.Add(person);
+        db.Workstreams.Add(workstream);
+        db.FocusAreas.Add(focusArea);
         await db.SaveChangesAsync();
 
         db.ResourcePlanLines.Add(new ResourcePlanLine
         {
             ProgramId = program.Id, ScenarioId = scenario.Id, TeamId = team.Id, RoleId = role.Id, PersonId = person.Id,
+            WorkstreamId = workstream.Id, FocusAreaId = focusArea.Id,
             StartDate = new DateOnly(2027, 1, 1), EndDate = new DateOnly(2027, 6, 30), Fte = 1.0m
         });
         await db.SaveChangesAsync();
@@ -59,11 +64,15 @@ public class ExcelImportServiceTests
         Assert.Equal(1.0m, imported[0].Fte);
         Assert.Equal(person.Id, imported[0].PersonId);
         Assert.Equal(team.Id, imported[0].TeamId);
+        Assert.Equal(workstream.Id, imported[0].WorkstreamId);
+        Assert.Equal(focusArea.Id, imported[0].FocusAreaId);
 
-        // No duplicate master data was created for the already-existing team/role/person.
+        // No duplicate master data was created for the already-existing team/role/person/workstream/focus area.
         Assert.Single(db.Teams.ToList());
         Assert.Single(db.People.ToList());
         Assert.Single(db.Roles.ToList());
+        Assert.Single(db.Workstreams.ToList());
+        Assert.Single(db.FocusAreas.ToList());
     }
 
     [Fact]
