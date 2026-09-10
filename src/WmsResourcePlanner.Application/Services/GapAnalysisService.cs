@@ -65,4 +65,65 @@ public class GapAnalysisService
             .ThenBy(r => r.TeamName).ThenBy(r => r.RoleName)
             .ToList();
     }
+
+    /// <summary>
+    /// Aggregates Filled FTE (PersonId != null), Open FTE (PersonId == null)
+    /// and Total Need (Filled + Open) by Team/Role/Month across the whole
+    /// scenario, supporting Acceptance Scenario D.
+    /// </summary>
+    public async Task<List<FilledOpenTotalResult>> GetFilledOpenTotalAsync(
+        int scenarioId, DateOnly horizonStart, DateOnly horizonEnd, CancellationToken ct = default)
+    {
+        var lines = await _db.ResourcePlanLines
+            .Where(r => r.ScenarioId == scenarioId)
+            .Include(r => r.Team)
+            .Include(r => r.Role)
+            .ToListAsync(ct);
+
+        var monthly = _engine.ExpandToMonthly(lines, horizonStart, horizonEnd);
+        var lookup = lines.GroupBy(l => l.ToRowKey()).ToDictionary(g => g.Key, g => g.First());
+
+        var buckets = new Dictionary<(int Year, int Month, string Team, string Role), (decimal Filled, decimal Open)>();
+
+        foreach (var (key, values) in monthly)
+        {
+            if (!lookup.TryGetValue(key, out var sample))
+            {
+                continue;
+            }
+
+            var teamName = sample.Team?.Name ?? string.Empty;
+            var roleName = sample.Role?.Name ?? string.Empty;
+
+            foreach (var v in values.Where(v => v.Fte != 0m))
+            {
+                var bucketKey = (v.Year, v.Month, teamName, roleName);
+                buckets.TryGetValue(bucketKey, out var current);
+
+                if (key.PersonId != null)
+                {
+                    current.Filled += v.Fte;
+                }
+                else
+                {
+                    current.Open += v.Fte;
+                }
+
+                buckets[bucketKey] = current;
+            }
+        }
+
+        return buckets
+            .Select(b => new FilledOpenTotalResult(
+                b.Key.Year,
+                b.Key.Month,
+                b.Key.Team,
+                b.Key.Role,
+                b.Value.Filled,
+                b.Value.Open,
+                b.Value.Filled + b.Value.Open))
+            .OrderBy(r => r.Year).ThenBy(r => r.Month)
+            .ThenBy(r => r.TeamName).ThenBy(r => r.RoleName)
+            .ToList();
+    }
 }

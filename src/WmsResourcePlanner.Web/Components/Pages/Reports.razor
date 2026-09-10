@@ -32,6 +32,24 @@ else
         </tbody>
     </table>
 
+    <h1>Filled vs Open vs Total Need (by Team/Role)</h1>
+    <table class="data-grid">
+        <thead><tr><th>Month</th><th>Team</th><th>Role</th><th>Filled FTE</th><th>Open FTE</th><th>Total Need FTE</th></tr></thead>
+        <tbody>
+            @foreach (var f in _filledOpenTotal)
+            {
+                <tr>
+                    <td>@(new DateOnly(f.Year, f.Month, 1).ToString("MMM yyyy"))</td>
+                    <td>@f.TeamName</td>
+                    <td>@f.RoleName</td>
+                    <td>@f.FilledFte.ToString("0.##")</td>
+                    <td>@f.OpenFte.ToString("0.##")</td>
+                    <td>@f.TotalFte.ToString("0.##")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
     <h1>Capacity Report</h1>
     <table class="data-grid">
         <thead><tr><th>Person</th><th>Role</th><th>Period</th><th>Capacity</th><th>Allocated</th><th>Remaining</th><th>Status</th></tr></thead>
@@ -84,6 +102,7 @@ else
 @code {
     private bool _loading = true;
     private List<GapResult> _gaps = new();
+    private List<WmsResourcePlanner.Application.DTOs.FilledOpenTotalResult> _filledOpenTotal = new();
     private List<WmsResourcePlanner.Application.DTOs.PersonCapacityResult> _capacity = new();
     private List<WmsResourcePlanner.Application.DTOs.RolloutCapacityResult> _rollout = new();
 
@@ -94,6 +113,7 @@ else
         var horizonStart = new DateOnly(DateTime.Today.Year, 1, 1);
         var horizonEnd = horizonStart.AddMonths(59);
         _gaps = await GapService.GetOpenDemandAsync(scenario.Id, horizonStart, horizonEnd);
+        _filledOpenTotal = await GapService.GetFilledOpenTotalAsync(scenario.Id, horizonStart, horizonEnd);
         _capacity = await CapacityService.GetPersonCapacityAsync(scenario.Id, horizonStart, horizonEnd);
         _rollout = await RolloutService.GetRolloutCapacityAsync(scenario.Id, horizonStart, horizonEnd);
         _loading = false;

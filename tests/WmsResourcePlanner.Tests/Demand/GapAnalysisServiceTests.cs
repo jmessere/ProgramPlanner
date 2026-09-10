@@ -40,4 +40,41 @@ public class GapAnalysisServiceTests
         Assert.All(results, r => Assert.Equal(0.5m, r.OpenFte));
         Assert.All(results, r => Assert.Equal("Inbound T1", r.TeamName));
     }
+
+    [Fact]
+    public async Task GetFilledOpenTotalAsync_CombinesFilledAndOpenPerTeamRoleMonth()
+    {
+        using var db = TestDbFactory.Create();
+
+        var program = new Program { Name = "P" };
+        db.Programs.Add(program);
+        await db.SaveChangesAsync();
+
+        var scenario = new PlanningScenario { ProgramId = program.Id, Name = "Baseline" };
+        var role = new Role { ProgramId = program.Id, Name = "BA" };
+        var team = new Team { ProgramId = program.Id, Name = "Inbound T1", TeamType = "Template Build" };
+        db.PlanningScenarios.Add(scenario);
+        db.Roles.Add(role);
+        db.Teams.Add(team);
+
+        var person = new Person { ProgramId = program.Id, FirstName = "Jane", LastName = "Smith", DisplayName = "Jane Smith" };
+        db.People.Add(person);
+        await db.SaveChangesAsync();
+
+        db.ResourcePlanLines.AddRange(
+            new ResourcePlanLine { ProgramId = program.Id, ScenarioId = scenario.Id, TeamId = team.Id, RoleId = role.Id, PersonId = null, StartDate = new DateOnly(2027, 1, 1), EndDate = new DateOnly(2027, 1, 31), Fte = 0.5m },
+            new ResourcePlanLine { ProgramId = program.Id, ScenarioId = scenario.Id, TeamId = team.Id, RoleId = role.Id, PersonId = person.Id, StartDate = new DateOnly(2027, 1, 1), EndDate = new DateOnly(2027, 1, 31), Fte = 1.0m });
+        await db.SaveChangesAsync();
+
+        var sut = new GapAnalysisService(db, new ResourceTransformationService());
+
+        var results = await sut.GetFilledOpenTotalAsync(scenario.Id, new DateOnly(2027, 1, 1), new DateOnly(2027, 1, 31));
+
+        var row = Assert.Single(results);
+        Assert.Equal("Inbound T1", row.TeamName);
+        Assert.Equal("BA", row.RoleName);
+        Assert.Equal(1.0m, row.FilledFte);
+        Assert.Equal(0.5m, row.OpenFte);
+        Assert.Equal(1.5m, row.TotalFte);
+    }
 }
