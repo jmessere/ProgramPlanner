@@ -484,17 +484,7 @@ else
     // its month range, not repeated per-month, matching the Gantt-style
     // overlap/lane rule used elsewhere (GanttChart.AssignLanes).
 
-    private static readonly string[] OverlayPalette =
-    {
-        "#2b6cb0", "#c05621", "#2f855a", "#6b46c1", "#b7791f", "#c53030", "#2c7a7b", "#4a5568"
-    };
-
-    private static string ColorFor(string name)
-    {
-        var hash = 0;
-        foreach (var c in name) hash = hash * 31 + c;
-        return OverlayPalette[Math.Abs(hash) % OverlayPalette.Length];
-    }
+    private static string ColorFor(string name) => WmsResourcePlanner.Application.Services.NameColorPalette.ColorFor(name);
 
     // A month-index-spanning cell within an overlay row: Color/Label are
     // null for an empty gap segment (rendered as a plain spacer cell).

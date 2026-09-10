@@ -1,4 +1,5 @@
 @using WmsResourcePlanner.Application.DTOs
+@using WmsResourcePlanner.Application.Services
 @implements IDisposable
 @inject IJSRuntime JS
 
@@ -13,6 +14,27 @@
                 }
             </div>
         </div>
+        @if (ShowTemplateOverlay && TemplatePhaseBars.Count > 0)
+        {
+            @foreach (var orow in OverlayRows())
+            {
+                <div class="gantt-row gantt-overlay-row" style="position:sticky;top:@(orow.Top)px;z-index:5">
+                    <div class="gantt-row-label" title="@orow.TemplateName">@orow.TemplateName</div>
+                    <div class="gantt-row-track" style="width:@(TotalWidthPx)px;height:@(orow.TrackHeight)px">
+                        @foreach (var (bar, lane) in orow.Bars)
+                        {
+                            var left = DaysFromStart(bar.StartDate) * PxPerDay;
+                            var width = Math.Max(8, (DaysFromStart(bar.EndDate) - DaysFromStart(bar.StartDate) + 1) * PxPerDay);
+                            var top = RowVerticalPadding + lane * LaneHeight;
+                            <div class="gantt-phase-bar" style="left:@(left)px;width:@(width)px;top:@(top)px;background:@(NameColorPalette.ColorFor(bar.BarLabel))"
+                                 title="@bar.BarLabel (@bar.StartDate.ToString("MMM yyyy") - @bar.EndDate.ToString("MMM yyyy"))">
+                                <span>@bar.BarLabel</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        }
         @foreach (var group in GroupedRows())
         {
             @if (HasSubGrouping)
@@ -21,6 +43,31 @@
                     <div class="gantt-row-label" title="@group.PrimaryLabel">@group.PrimaryLabel</div>
                     <div class="gantt-row-track" style="width:@(TotalWidthPx)px"></div>
                 </div>
+            }
+            @if (GroupHeader == "Template" && TemplatePhaseBars.Count > 0)
+            {
+                var phaseBars = TemplatePhaseBars.Where(b => b.GroupLabel == group.PrimaryLabel).ToList();
+                if (phaseBars.Count > 0)
+                {
+                    var lanedPhases = AssignLanes(phaseBars);
+                    var phaseLaneCount = lanedPhases.Count == 0 ? 1 : lanedPhases.Max(x => x.Lane) + 1;
+                    var phaseTrackHeight = RowVerticalPadding + phaseLaneCount * LaneHeight;
+                    <div class="gantt-row gantt-phase-row">
+                        <div class="gantt-row-label gantt-row-label-sub" title="Template phases">Phases</div>
+                        <div class="gantt-row-track" style="width:@(TotalWidthPx)px;height:@(phaseTrackHeight)px">
+                            @foreach (var (bar, lane) in lanedPhases)
+                            {
+                                var left = DaysFromStart(bar.StartDate) * PxPerDay;
+                                var width = Math.Max(8, (DaysFromStart(bar.EndDate) - DaysFromStart(bar.StartDate) + 1) * PxPerDay);
+                                var top = RowVerticalPadding + lane * LaneHeight;
+                                <div class="gantt-phase-bar" style="left:@(left)px;width:@(width)px;top:@(top)px;background:@(NameColorPalette.ColorFor(bar.BarLabel))"
+                                     title="@bar.BarLabel (@bar.StartDate.ToString("MMM yyyy") - @bar.EndDate.ToString("MMM yyyy"))">
+                                    <span>@bar.BarLabel</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
             }
             @foreach (var row in group.Rows)
             {
@@ -57,6 +104,15 @@
     [Parameter] public double PxPerDay { get; set; } = 3.0;
     [Parameter] public EventCallback<(int Id, DateOnly Start, DateOnly End)> OnBarChanged { get; set; }
 
+    // Optional fixed template/phase overlay (mirrors the Resource Plan
+    // grid's overlay): TemplatePhaseBars carries every template phase
+    // (GroupLabel = template name), shown as its own sticky-at-top row per
+    // template when ShowTemplateOverlay is enabled. When GroupHeader is
+    // "Template", the same phases are additionally shown inline as the top
+    // row of each template's own group, regardless of the overlay toggle.
+    [Parameter] public List<GanttBar> TemplatePhaseBars { get; set; } = new();
+    [Parameter] public bool ShowTemplateOverlay { get; set; }
+
     private readonly string _containerId = $"gantt-{Guid.NewGuid():N}";
     private DotNetObjectReference<GanttChart>? _dotNetRef;
     private int TotalWidthPx => (int)((HorizonEnd.DayNumber - HorizonStart.DayNumber + 1) * PxPerDay);
@@ -70,6 +126,12 @@
     private const int LaneHeight = 32;
     private const int RowVerticalPadding = 6;
 
+    // Matches the CSS header track height (28px) plus its border-bottom
+    // (2px), so sticky overlay rows stack immediately beneath it with no
+    // gap or overlap.
+    private const int HeaderHeightPx = 30;
+    private const int OverlayRowBorderPx = 1;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
@@ -80,6 +142,30 @@
     }
 
     private bool HasSubGrouping => Bars.Any(b => !string.IsNullOrEmpty(b.SubGroupLabel));
+
+    private sealed record OverlayRow(string TemplateName, List<(GanttBar Bar, int Lane)> Bars, int TrackHeight, int Top);
+
+    /// <summary>
+    /// Builds the fixed template/phase overlay rows: one row per template
+    /// (ordered by name), its phases lane-stacked when they overlap in
+    /// time, with a running "Top" pixel offset so each row's inline
+    /// position:sticky sits immediately beneath the header and the
+    /// previous overlay row.
+    /// </summary>
+    private List<OverlayRow> OverlayRows()
+    {
+        var result = new List<OverlayRow>();
+        var top = HeaderHeightPx;
+        foreach (var g in TemplatePhaseBars.GroupBy(b => b.GroupLabel).OrderBy(g => g.Key))
+        {
+            var laned = AssignLanes(g);
+            var laneCount = laned.Count == 0 ? 1 : laned.Max(x => x.Lane) + 1;
+            var trackHeight = RowVerticalPadding + laneCount * LaneHeight;
+            result.Add(new OverlayRow(g.Key, laned, trackHeight, top));
+            top += trackHeight + OverlayRowBorderPx;
+        }
+        return result;
+    }
 
     /// <summary>
     /// Groups bars by their primary GroupLabel and, when any bar carries a

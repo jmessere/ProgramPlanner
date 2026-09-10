@@ -53,6 +53,7 @@ else
         <label>Role: <input @bind="FilterState.RoleFilter" @bind:event="oninput" placeholder="contains..." style="width:110px" /></label>
         <label>Person: <input @bind="FilterState.PersonFilter" @bind:event="oninput" placeholder="contains..." style="width:110px" /></label>
         <label><input type="checkbox" @bind="FilterState.OpenDemandOnly" /> Open demand only</label>
+        <label><input type="checkbox" @bind="FilterState.ShowTemplateOverlay" /> Show template/phase overlay</label>
     </div>
 
     <p>Showing @FilteredBars().Count of @_allLines.Count allocation(s).</p>
@@ -63,7 +64,8 @@ else
     }
     else
     {
-        <GanttChart Bars="FilteredBars()" HorizonStart="_horizonStart" HorizonEnd="_horizonEnd" GroupHeader="@FilterState.GroupBy" PxPerDay="2.0" />
+        <GanttChart Bars="FilteredBars()" HorizonStart="_horizonStart" HorizonEnd="_horizonEnd" GroupHeader="@FilterState.GroupBy" PxPerDay="2.0"
+                    TemplatePhaseBars="_templatePhaseBars" ShowTemplateOverlay="FilterState.ShowTemplateOverlay" />
     }
 }
 
@@ -71,6 +73,7 @@ else
     private bool _loading = true;
     private List<PlanningScenario> _scenarios = new();
     private List<TimelineLine> _allLines = new();
+    private List<GanttBar> _templatePhaseBars = new();
     private DateOnly _horizonStart;
     private DateOnly _horizonEnd;
 
@@ -89,6 +92,7 @@ else
         }
 
         await LoadAsync();
+        _templatePhaseBars = await GanttService.GetTemplatePhaseBarsAsync();
         _loading = false;
     }
 

@@ -24,4 +24,11 @@ public class FilterStateService
     public string RoleFilter { get; set; } = string.Empty;
     public string PersonFilter { get; set; } = string.Empty;
     public bool OpenDemandOnly { get; set; }
+
+    /// <summary>
+    /// Toggles the fixed template/phase overlay on the Global Timeline,
+    /// mirroring the Resource Plan grid's "Show templates/phases overlay"
+    /// option (SPEC.md template/phase visualization).
+    /// </summary>
+    public bool ShowTemplateOverlay { get; set; }
 }
