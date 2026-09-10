@@ -15,15 +15,19 @@
         </div>
         @foreach (var group in Groups())
         {
+            var laned = AssignLanes(group);
+            var laneCount = laned.Count == 0 ? 1 : laned.Max(x => x.Lane) + 1;
+            var trackHeight = RowVerticalPadding + laneCount * LaneHeight;
             <div class="gantt-row">
                 <div class="gantt-row-label" title="@group.Key">@group.Key</div>
-                <div class="gantt-row-track" style="width:@(TotalWidthPx)px">
-                    @foreach (var bar in group)
+                <div class="gantt-row-track" style="width:@(TotalWidthPx)px;height:@(trackHeight)px">
+                    @foreach (var (bar, lane) in laned)
                     {
                         var left = DaysFromStart(bar.StartDate) * PxPerDay;
                         var width = Math.Max(8, (DaysFromStart(bar.EndDate) - DaysFromStart(bar.StartDate) + 1) * PxPerDay);
+                        var top = RowVerticalPadding + lane * LaneHeight;
                         <div class="gantt-bar @(bar.Color ?? "filled")" data-id="@bar.Id"
-                             style="left:@(left)px;width:@(width)px"
+                             style="left:@(left)px;width:@(width)px;top:@(top)px"
                              title="@bar.BarLabel (@bar.StartDate.ToString("MMM yyyy") - @bar.EndDate.ToString("MMM yyyy"))">
                             <span style="pointer-events:none">@bar.BarLabel@(string.IsNullOrEmpty(bar.SubLabel) ? "" : $" · {bar.SubLabel}")</span>
                             <div class="resize-handle"></div>
@@ -47,6 +51,15 @@
     private DotNetObjectReference<GanttChart>? _dotNetRef;
     private int TotalWidthPx => (int)((HorizonEnd.DayNumber - HorizonStart.DayNumber + 1) * PxPerDay);
 
+    // Bars within the same group row are stacked into vertical "lanes" so
+    // that overlapping date ranges never overlap visually - each lane gets
+    // its own horizontal strip, which keeps every bar independently
+    // clickable/draggable/resizable even when several bars for the same
+    // group cover the same time period. This is the standard convention
+    // for any Gantt view that supports live drag/resize editing.
+    private const int LaneHeight = 32;
+    private const int RowVerticalPadding = 6;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
@@ -58,6 +71,28 @@
 
     private IEnumerable<IGrouping<string, GanttBar>> Groups()
         => Bars.GroupBy(b => b.GroupLabel);
+
+    private static List<(GanttBar Bar, int Lane)> AssignLanes(IEnumerable<GanttBar> bars)
+    {
+        var ordered = bars.OrderBy(b => b.StartDate).ThenBy(b => b.EndDate).ToList();
+        var laneEndDates = new List<DateOnly>();
+        var result = new List<(GanttBar, int)>(ordered.Count);
+        foreach (var bar in ordered)
+        {
+            var lane = laneEndDates.FindIndex(end => end < bar.StartDate);
+            if (lane == -1)
+            {
+                lane = laneEndDates.Count;
+                laneEndDates.Add(bar.EndDate);
+            }
+            else
+            {
+                laneEndDates[lane] = bar.EndDate;
+            }
+            result.Add((bar, lane));
+        }
+        return result;
+    }
 
     private int DaysFromStart(DateOnly d) => d.DayNumber - HorizonStart.DayNumber;
 
