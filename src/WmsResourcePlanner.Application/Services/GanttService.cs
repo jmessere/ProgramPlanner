@@ -175,6 +175,7 @@ public class GanttService
             TeamName = r.Team?.Name ?? string.Empty,
             RoleName = r.Role?.Name ?? string.Empty,
             PersonName = r.Person?.DisplayName,
+            PersonId = r.PersonId,
             EmployeeType = r.Person?.EmployeeType,
             TeamType = r.Team?.TeamType,
             StartDate = r.StartDate,

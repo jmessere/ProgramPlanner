@@ -1,0 +1,106 @@
+@page "/people/{PersonId:int}"
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
+@inject WmsResourcePlanner.Application.Services.GanttService GanttService
+@inject WmsResourcePlanner.Application.Services.CapacityService CapacityService
+@using Microsoft.EntityFrameworkCore
+@using WmsResourcePlanner.Domain.Entities
+@using WmsResourcePlanner.Application.DTOs
+
+<PageTitle>Person Detail</PageTitle>
+
+@if (_person is null)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <h1>@_person.DisplayName</h1>
+    <p><a href="/people">← Back to People</a></p>
+
+    <table class="data-grid" style="max-width:600px">
+        <tbody>
+            <tr><th>Primary Role</th><td>@(_primaryRoleName ?? "(none)")</td></tr>
+            <tr><th>Employee Type</th><td>@_person.EmployeeType</td></tr>
+            <tr><th>Organization</th><td>@_person.Organization</td></tr>
+            <tr><th>Location</th><td>@_person.Location</td></tr>
+            <tr><th>Capacity (FTE)</th><td>@_person.DefaultCapacityFte.ToString("0.##")</td></tr>
+            <tr><th>Availability</th><td>@(_person.AvailableStartDate?.ToString("MMM d, yyyy") ?? "—") to @(_person.AvailableEndDate?.ToString("MMM d, yyyy") ?? "—")</td></tr>
+            <tr><th>Active</th><td>@(_person.Active ? "Yes" : "No")</td></tr>
+        </tbody>
+    </table>
+
+    <h2>Allocation Timeline</h2>
+    @if (_bars.Count == 0)
+    {
+        <p><em>No resource plan allocations for this person yet.</em></p>
+    }
+    else
+    {
+        <GanttChart Bars="_bars" HorizonStart="_horizonStart" HorizonEnd="_horizonEnd" GroupHeader="Assignment" PxPerDay="2.0" />
+    }
+
+    <h2>Capacity Conflicts</h2>
+    @if (_conflicts.Count == 0)
+    {
+        <p><em>No overallocation detected for this person.</em></p>
+    }
+    else
+    {
+        <table class="data-grid">
+            <thead><tr><th>Period</th><th>Capacity</th><th>Allocated</th><th>Status</th></tr></thead>
+            <tbody>
+                @foreach (var c in _conflicts)
+                {
+                    <tr class="cell-warning">
+                        <td>@(new DateOnly(c.Year, c.Month, 1).ToString("MMM yyyy"))</td>
+                        <td>@c.CapacityFte.ToString("0.##")</td>
+                        <td>@c.AllocatedFte.ToString("0.##")</td>
+                        <td>@c.Status</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+}
+
+@code {
+    [Parameter] public int PersonId { get; set; }
+
+    private Person? _person;
+    private string? _primaryRoleName;
+    private List<GanttBar> _bars = new();
+    private List<PersonCapacityResult> _conflicts = new();
+    private DateOnly _horizonStart;
+    private DateOnly _horizonEnd;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _person = await Db.People.FirstOrDefaultAsync(p => p.Id == PersonId);
+        if (_person is null) return;
+
+        if (_person.PrimaryRoleId is not null)
+        {
+            _primaryRoleName = (await Db.Roles.FirstOrDefaultAsync(r => r.Id == _person.PrimaryRoleId))?.Name;
+        }
+
+        var scenario = await Db.PlanningScenarios.FirstAsync(s => s.ProgramId == _person.ProgramId && s.IsBaseline);
+        _horizonStart = new DateOnly(DateTime.Today.Year, 1, 1);
+        _horizonEnd = _horizonStart.AddMonths(59);
+
+        var lines = await GanttService.GetTimelineLinesAsync(scenario.Id);
+        _bars = lines.Where(l => l.PersonId == PersonId)
+            .Select(l => new GanttBar
+            {
+                Id = l.Id,
+                GroupLabel = l.TeamName,
+                BarLabel = l.TeamName,
+                SubLabel = $"{l.RoleName} · {l.Fte:0.##} FTE",
+                StartDate = l.StartDate,
+                EndDate = l.EndDate
+            }).ToList();
+
+        var capacity = await CapacityService.GetPersonCapacityAsync(scenario.Id, _horizonStart, _horizonEnd, PersonId);
+        _conflicts = capacity.Where(c => c.Status == CapacityStatus.Overallocated).ToList();
+    }
+}

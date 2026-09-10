@@ -28,7 +28,7 @@
         @foreach (var p in _people)
         {
             <tr>
-                <td><input @bind="p.DisplayName" @bind:after="() => SaveAsync(p)" /></td>
+                <td><input @bind="p.DisplayName" @bind:after="() => SaveAsync(p)" /> <a href="@($"/people/{p.Id}")">Detail</a></td>
                 <td><input @bind="p.FirstName" @bind:after="() => SaveAsync(p)" /></td>
                 <td><input @bind="p.LastName" @bind:after="() => SaveAsync(p)" /></td>
                 <td>
