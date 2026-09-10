@@ -72,6 +72,19 @@ table.data-grid th {
 table.data-grid.frozen-grid {
     border-collapse: separate;
     border-spacing: 0;
+    table-layout: fixed;
+    width: auto;
+}
+
+/* box-sizing:border-box is essential here: the frozen columns' sticky
+   "left" offsets are cumulative sums of each preceding column's declared
+   width. With the default content-box sizing, padding/border are added on
+   top of that width, so the actual rendered column boundaries drift out of
+   sync with the assumed offsets as you move right - which is what made the
+   frozen columns visually overlap/mix with the scrolling month cells. */
+table.data-grid.frozen-grid th,
+table.data-grid.frozen-grid td {
+    box-sizing: border-box;
 }
 
 table.data-grid.frozen-grid th,
@@ -106,6 +119,17 @@ table.data-grid.frozen-grid thead tr:first-child th {
 .frozen-grid .frozen-col-3 { left: 240px; width: 120px; }
 .frozen-grid .frozen-col-4 { left: 360px; width: 120px; }
 .frozen-grid .frozen-col-5 { left: 480px; width: 130px; }
+
+.frozen-grid .frozen-col {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.frozen-grid .month-col {
+    width: 56px;
+    text-align: right;
+}
 
 /* Visible seam marking the boundary between frozen columns and scrolling
    month data, so the freeze point is obvious as the grid is scrolled. */

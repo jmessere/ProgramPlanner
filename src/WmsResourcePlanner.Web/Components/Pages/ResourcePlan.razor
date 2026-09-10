@@ -70,7 +70,7 @@ else
                     <th class="frozen-col frozen-col-5 frozen-col-last">Person</th>
                     @foreach (var m in _monthHeaders)
                     {
-                        <th style="min-width:56px;text-align:right">@m.ToString("MMM-yy")</th>
+                        <th class="month-col">@m.ToString("MMM-yy")</th>
                     }
                 </tr>
             </thead>
@@ -95,7 +95,7 @@ else
                         @foreach (var mv in row.Months)
                         {
                             var warning = GetWarning(row.Key, mv.Year, mv.Month);
-                            <td style="text-align:right" class="@(warning is null ? "" : "cell-warning")" title="@warning">
+                            <td class="month-col @(warning is null ? "" : "cell-warning")" title="@warning">
                                 <input type="number" step="0.05" min="0" style="width:52px;text-align:right"
                                        value="@(mv.Fte == 0 ? "" : mv.Fte.ToString("0.##"))"
                                        @onchange="e => OnCellChangedAsync(row, mv.Year, mv.Month, e.Value)" />
