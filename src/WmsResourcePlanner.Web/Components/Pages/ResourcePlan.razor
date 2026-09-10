@@ -1,5 +1,6 @@
 @page "/resource-plan"
 @rendermode InteractiveServer
+@implements IDisposable
 @inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
 @inject WmsResourcePlanner.Application.Services.ResourcePlanGridService GridService
 @inject WmsResourcePlanner.Application.Services.ScenarioService ScenarioService
@@ -50,20 +51,20 @@ else
         <table class="data-grid frozen-grid" style="width:@(TotalGridWidth)px">
             <thead>
                 <tr style="height:@(HeaderRowHeight)px">
-                    <th class="frozen-col" style="left:@(TeamLeft)px;width:@(TeamColWidth)px;top:0">Team</th>
+                    <th class="frozen-col" style="left:@(TeamLeft)px;width:@(TeamColWidth)px;top:0">Team<span class="col-resize-handle" data-col="team"></span></th>
                     @if (_showTemplateColumn)
                     {
-                        <th class="frozen-col" style="left:@(TemplateLeft)px;width:@(TemplateColWidth)px;top:0">Template</th>
+                        <th class="frozen-col" style="left:@(TemplateLeft)px;width:@(TemplateColWidth)px;top:0">Template<span class="col-resize-handle" data-col="template"></span></th>
                     }
                     @if (_showWorkstreamColumn)
                     {
-                        <th class="frozen-col" style="left:@(WorkstreamLeft)px;width:@(WorkstreamColWidth)px;top:0">Workstream</th>
+                        <th class="frozen-col" style="left:@(WorkstreamLeft)px;width:@(WorkstreamColWidth)px;top:0">Workstream<span class="col-resize-handle" data-col="workstream"></span></th>
                     }
-                    <th class="frozen-col" style="left:@(RoleLeft)px;width:@(RoleColWidth)px;top:0">Role</th>
-                    <th class="frozen-col frozen-col-last" style="left:@(PersonLeft)px;width:@(PersonColWidth)px;top:0">Person</th>
+                    <th class="frozen-col" style="left:@(RoleLeft)px;width:@(RoleColWidth)px;top:0">Role<span class="col-resize-handle" data-col="role"></span></th>
+                    <th class="frozen-col frozen-col-last" style="left:@(PersonLeft)px;width:@(PersonColWidth)px;top:0">Person<span class="col-resize-handle" data-col="person"></span></th>
                     @foreach (var m in _monthHeaders)
                     {
-                        <th class="month-col" style="top:0">@m.ToString("MMM-yy")</th>
+                        <th class="month-col" style="top:0;width:@(MonthColWidth)px">@m.ToString("MMM-yy")<span class="col-resize-handle" data-col="month"></span></th>
                     }
                 </tr>
                 @if (_showPhaseOverlay)
@@ -134,7 +135,7 @@ else
                     </td>
                     @foreach (var m in _monthHeaders)
                     {
-                        <td class="month-col @(_newRowBlocked ? "cell-warning" : "")" title="@(_newRowBlocked ? "Select a Team and Role first" : null)">
+                        <td class="month-col @(_newRowBlocked ? "cell-warning" : "")" style="width:@(MonthColWidth)px" title="@(_newRowBlocked ? "Select a Team and Role first" : null)">
                             <input type="number" step="0.05" min="0" class="fte-input" style="text-align:right" @key="(m.Year, m.Month, _newRowGeneration)"
                                    @onchange="e => OnNewRowCellChangedAsync(m.Year, m.Month, e.Value)" />
                         </td>
@@ -184,7 +185,7 @@ else
                         @foreach (var mv in row.Months)
                         {
                             var warning = GetWarning(row.Key, mv.Year, mv.Month);
-                            <td class="month-col @(warning is null ? "" : "cell-warning")" title="@warning">
+                            <td class="month-col @(warning is null ? "" : "cell-warning")" style="width:@(MonthColWidth)px" title="@warning">
                                 <input type="number" step="0.05" min="0" class="fte-input" style="text-align:right"
                                        value="@(mv.Fte == 0 ? "" : mv.Fte.ToString("0.##"))"
                                        @onchange="e => OnCellChangedAsync(row, mv.Year, mv.Month, e.Value)" />
@@ -248,18 +249,25 @@ else
     private bool _showTemplateColumn = true;
     private bool _showWorkstreamColumn = true;
     private bool _showPhaseOverlay;
-    private const int TeamColWidth = 140;
-    private const int TemplateColWidth = 100;
-    private const int WorkstreamColWidth = 120;
-    private const int RoleColWidth = 120;
-    private const int PersonColWidth = 130;
+
+    // Column widths default to these values but are user-resizable at
+    // runtime by dragging each header's right-edge handle (see
+    // wwwroot/js/gantt.js "wmsColResize" and OnColumnResized below). They
+    // are intentionally mutable fields (not consts) for that reason.
+    private int TeamColWidth = 140;
+    private int TemplateColWidth = 100;
+    private int WorkstreamColWidth = 120;
+    private int RoleColWidth = 120;
+    private int PersonColWidth = 130;
+    private int MonthColWidth = 56;
+    private const int MinFrozenColWidth = 60;
+    private const int MinMonthColWidth = 36;
 
     private int TeamLeft => 0;
     private int TemplateLeft => TeamLeft + TeamColWidth;
     private int WorkstreamLeft => TemplateLeft + (_showTemplateColumn ? TemplateColWidth : 0);
     private int RoleLeft => WorkstreamLeft + (_showWorkstreamColumn ? WorkstreamColWidth : 0);
     private int PersonLeft => RoleLeft + RoleColWidth;
-    private const int MonthColWidth = 56;
     private const int HeaderRowHeight = 30;
 
     private int FrozenColumnCount => 3 + (_showTemplateColumn ? 1 : 0) + (_showWorkstreamColumn ? 1 : 0);
@@ -298,7 +306,47 @@ else
         if (firstRender)
         {
             await JS.InvokeVoidAsync("wmsGridNav.init", _gridContainerId);
+            _colResizeRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("wmsColResize.init", _gridContainerId, _colResizeRef);
         }
+    }
+
+    private DotNetObjectReference<ResourcePlan>? _colResizeRef;
+
+    // Invoked from wwwroot/js/gantt.js "wmsColResize" once the user releases
+    // a column's drag handle - deltaPx is the horizontal distance dragged,
+    // applied to whichever column's key was reported.
+    [JSInvokable]
+    public void OnColumnResized(string col, double deltaPx)
+    {
+        var delta = (int)Math.Round(deltaPx);
+        switch (col)
+        {
+            case "team":
+                TeamColWidth = Math.Max(MinFrozenColWidth, TeamColWidth + delta);
+                break;
+            case "template":
+                TemplateColWidth = Math.Max(MinFrozenColWidth, TemplateColWidth + delta);
+                break;
+            case "workstream":
+                WorkstreamColWidth = Math.Max(MinFrozenColWidth, WorkstreamColWidth + delta);
+                break;
+            case "role":
+                RoleColWidth = Math.Max(MinFrozenColWidth, RoleColWidth + delta);
+                break;
+            case "person":
+                PersonColWidth = Math.Max(MinFrozenColWidth, PersonColWidth + delta);
+                break;
+            case "month":
+                MonthColWidth = Math.Max(MinMonthColWidth, MonthColWidth + delta);
+                break;
+        }
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        _colResizeRef?.Dispose();
     }
 
     private async Task ReloadLookupsAsync()

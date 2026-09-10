@@ -119,6 +119,68 @@ window.wmsGantt = {
     }
 };
 
+// Resizable grid columns (Resource Plan). Each resizable header has a
+// ".col-resize-handle" child with a "data-col" key (e.g. "team", "month").
+// While dragging, a thin vertical guide line follows the cursor for visual
+// feedback (touching every cell in the dragged column live would require a
+// lot of DOM churn for little benefit in a server-rendered grid); the actual
+// new width is only reported back to Blazor - which owns the authoritative
+// per-column width state - once the mouse is released, triggering one
+// re-render with the column at its final size.
+window.wmsColResize = {
+    _state: null,
+    init: function (containerId, dotNetRef) {
+        const container = document.getElementById(containerId);
+        if (!container || container.dataset.wmsColResizeBound === "1") return;
+        container.dataset.wmsColResizeBound = "1";
+
+        const guide = document.createElement("div");
+        guide.className = "col-resize-guide";
+        guide.style.display = "none";
+        document.body.appendChild(guide);
+
+        const showGuide = (x) => {
+            const rect = container.getBoundingClientRect();
+            guide.style.left = x + "px";
+            guide.style.top = rect.top + "px";
+            guide.style.height = rect.height + "px";
+            guide.style.display = "block";
+        };
+
+        const onMouseDown = (e) => {
+            const handle = e.target.closest(".col-resize-handle");
+            if (!handle || !container.contains(handle)) return;
+            window.wmsColResize._state = {
+                col: handle.dataset.col,
+                startX: e.clientX
+            };
+            showGuide(e.clientX);
+            e.preventDefault();
+        };
+
+        const onMouseMove = (e) => {
+            const s = window.wmsColResize._state;
+            if (!s) return;
+            showGuide(e.clientX);
+        };
+
+        const onMouseUp = async (e) => {
+            const s = window.wmsColResize._state;
+            if (!s) return;
+            window.wmsColResize._state = null;
+            guide.style.display = "none";
+            const deltaPx = e.clientX - s.startX;
+            if (Math.abs(deltaPx) >= 1) {
+                await dotNetRef.invokeMethodAsync("OnColumnResized", s.col, deltaPx);
+            }
+        };
+
+        container.addEventListener("mousedown", onMouseDown);
+        document.addEventListener("mousemove", onMouseMove);
+        document.addEventListener("mouseup", onMouseUp);
+    }
+};
+
 // Global Ctrl+Z (Cmd+Z) handling for the Undo bar (SPEC.md Phase 22).
 // Only one UndoBar instance is expected to be alive per page; a fresh
 // listener replaces the previous one each time init() runs.

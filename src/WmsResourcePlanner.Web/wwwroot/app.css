@@ -127,9 +127,12 @@ table.data-grid.frozen-grid thead tr:first-child th {
 }
 
 .frozen-grid .month-col {
-    width: 56px;
+    /* Width is set inline per-render from the (user-resizable) MonthColWidth
+       field - see ResourcePlan.razor and the "col-resize-handle" below. */
     text-align: right;
     padding: 0.25rem 0.3rem;
+    position: relative;
+    box-sizing: border-box;
 }
 
 .frozen-grid .month-col input {
@@ -138,6 +141,35 @@ table.data-grid.frozen-grid thead tr:first-child th {
        the next column, which looked like data "mixing" across columns. */
     width: 100%;
     box-sizing: border-box;
+}
+
+/* Drag handle on the right edge of every resizable column header, used by
+   wwwroot/js/gantt.js "wmsColResize" to let users widen/narrow columns that
+   are too small to show their data. */
+.col-resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 6;
+    user-select: none;
+    touch-action: none;
+}
+
+.col-resize-handle:hover {
+    background: rgba(37, 99, 235, 0.35);
+}
+
+/* Vertical guide line shown while a column resize drag is in progress. */
+.col-resize-guide {
+    position: fixed;
+    top: 0;
+    width: 2px;
+    background: #2563eb;
+    z-index: 9999;
+    pointer-events: none;
 }
 
 /* Visible seam marking the boundary between frozen columns and scrolling
