@@ -105,7 +105,7 @@ public class ExcelExportService
     {
         var ws = workbook.Worksheets.Add("Resource Plan");
 
-        string[] fixedHeaders = { "Template", "Phase", "Workstream", "Focus Area", "Team", "Role", "Person", "Pool", "Notes" };
+        string[] fixedHeaders = { "Workstream", "Team", "Pool", "Role", "Person", "Template", "Phase", "Focus Area", "Notes" };
         var firstMonthCol = RpFirstMonthCol; // shared by both tables so months align
 
         void WriteMonthHeaders(int headerRow)
@@ -193,18 +193,18 @@ public class ExcelExportService
             var s = sample[key];
             var templateName = s.TeamTemplateAssignment?.Template?.Name ?? s.TemplatePhase?.Template?.Name;
 
-            ws.Cell(row, 1).Value = templateName;
-            ws.Cell(row, 2).Value = s.TemplatePhase?.Name;
-            ws.Cell(row, 3).Value = s.Workstream?.Name;
-            ws.Cell(row, 4).Value = s.FocusArea?.Name;
-            ws.Cell(row, 5).Value = s.Team?.Name;
-            ws.Cell(row, 6).Value = s.Role?.Name;
-            ws.Cell(row, 7).Value = s.Person?.DisplayName;
+            ws.Cell(row, 1).Value = s.Workstream?.Name;
+            ws.Cell(row, 2).Value = s.Team?.Name;
             // Pool only shown for open demand rows - once a Person is named,
             // their own Resource Pool is the implicit source (see Reference
             // Data > People for that mapping) so showing it here too could
             // disagree with the Person's actual pool after re-import.
-            ws.Cell(row, 8).Value = s.Person is null ? s.ResourcePool?.Name : null;
+            ws.Cell(row, 3).Value = s.Person is null ? s.ResourcePool?.Name : null;
+            ws.Cell(row, 4).Value = s.Role?.Name;
+            ws.Cell(row, 5).Value = s.Person?.DisplayName;
+            ws.Cell(row, 6).Value = templateName;
+            ws.Cell(row, 7).Value = s.TemplatePhase?.Name;
+            ws.Cell(row, 8).Value = s.FocusArea?.Name;
             ws.Cell(row, 9).Value = s.Notes;
 
             for (var i = 0; i < values.Count; i++)
@@ -222,12 +222,16 @@ public class ExcelExportService
 
         ws.Columns(1, fixedHeaders.Length).AdjustToContents();
 
-        // Freeze through the Resource Plan header row (not just row 1) so
-        // the Template Plan overlay above stays visible while scrolling
-        // through Resource Plan data - this is what gives the planner the
-        // "template overlay while planning" view the two tables share.
-        ws.SheetView.FreezeRows(resourcePlanHeaderRow);
-        ws.SheetView.FreezeColumns(fixedHeaders.Length);
+        // Group (and collapse by default) the secondary/context columns
+        // Template, Phase, Focus Area, Notes (F-I) so the primary planning
+        // columns (Workstream, Team, Pool, Role, Person) stay compact and
+        // in focus; a planner can expand the outline group to see the
+        // extra detail when needed.
+        ws.Columns(6, fixedHeaders.Length).Group(true);
+
+        // No default frozen panes/split - the sheet opens plain so the
+        // Template Plan overlay above and the Resource Plan grid below can
+        // both be scrolled/viewed freely without a fixed pane boundary.
 
         // Structured Excel Tables (ListObjects) rather than a single
         // sheet-level AutoFilter, so both the Template Plan overlay and
@@ -335,10 +339,10 @@ public class ExcelExportService
     // references from the Summary sheet instead of baking in static
     // snapshot values, so the Summary recalculates if a user edits the
     // Resource Plan sheet directly in Excel.
-    private const int RpTeamCol = 5;
-    private const int RpRoleCol = 6;
-    private const int RpPersonCol = 7;
-    private const int RpPoolCol = 8;
+    private const int RpTeamCol = 2;
+    private const int RpRoleCol = 4;
+    private const int RpPersonCol = 5;
+    private const int RpPoolCol = 3;
     private const int RpFirstMonthCol = 10;
 
     // A generous fixed row bound (rather than a true whole-column

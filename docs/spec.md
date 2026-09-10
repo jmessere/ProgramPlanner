@@ -2065,12 +2065,28 @@ Example (Jan-Jun 2027 shown):
 Directly below the Template Plan table (separated by blank rows and its
 own section title/header row), one row per planning line, filterable via
 its own structured Table's column-header dropdowns (independent of the
-Template Plan table's filter above it). The sheet is frozen
-through the Resource Plan table's header row (not just row 1) and through
-its fixed label columns, so the Template Plan overlay above and the
-row labels on the left both stay visible while scrolling through plan
-data - this is what gives the planner the "template overlay while
-planning" view.
+Template Plan table's filter above it). Columns are ordered:
+
+```text
+Workstream
+Team
+Pool
+Role
+Person
+Template
+Phase
+Focus Area
+Notes
+<one column per month in the planning horizon>
+```
+
+The primary planning columns (Workstream, Team, Pool, Role, Person) come
+first; the secondary/context columns (Template, Phase, Focus Area, Notes)
+are grouped into a collapsible outline group (collapsed by default) so
+they stay out of the way but are one click away when needed. The sheet
+does not freeze any rows/columns or split panes by default - it opens
+plain so both the Template Plan overlay above and the Resource Plan grid
+below can be scrolled/viewed freely.
 
 
 ---

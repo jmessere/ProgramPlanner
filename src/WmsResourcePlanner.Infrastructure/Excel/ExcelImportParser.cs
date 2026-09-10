@@ -17,18 +17,17 @@ namespace WmsResourcePlanner.Infrastructure.Excel;
 public static class ExcelImportParser
 {
     /// <summary>Finds the header row of the Resource Plan table: the row
-    /// whose first three cells are "Template", "Phase", "Workstream" (the
-    /// Template Plan table's header row has "Notes" in the third cell
-    /// instead, since it has no Workstream column).</summary>
+    /// whose first two cells are "Workstream", "Team" (the Template Plan
+    /// table's header row has "Template", "Phase", "Notes" in its first
+    /// three cells instead, since it has no Workstream/Team columns).</summary>
     private static int? FindResourcePlanHeaderRow(IXLWorksheet ws)
     {
         var lastRow = ws.LastRowUsed()?.RowNumber() ?? 0;
         for (var r = 1; r <= lastRow; r++)
         {
             var row = ws.Row(r);
-            if (row.Cell(1).GetString().Trim().Equals("Template", StringComparison.OrdinalIgnoreCase) &&
-                row.Cell(2).GetString().Trim().Equals("Phase", StringComparison.OrdinalIgnoreCase) &&
-                row.Cell(3).GetString().Trim().Equals("Workstream", StringComparison.OrdinalIgnoreCase))
+            if (row.Cell(1).GetString().Trim().Equals("Workstream", StringComparison.OrdinalIgnoreCase) &&
+                row.Cell(2).GetString().Trim().Equals("Team", StringComparison.OrdinalIgnoreCase))
             {
                 return r;
             }
@@ -85,12 +84,12 @@ public static class ExcelImportParser
         }
 
         var headerRowNum = FindResourcePlanHeaderRow(ws)
-            ?? throw new InvalidOperationException("Could not find the Resource Plan table's header row (expected \"Template\", \"Phase\", \"Workstream\" ... columns) on the \"Resource Plan\" sheet.");
+            ?? throw new InvalidOperationException("Could not find the Resource Plan table's header row (expected \"Workstream\", \"Team\" ... columns) on the \"Resource Plan\" sheet.");
 
         var headerRow = ws.Row(headerRowNum);
         var lastColumn = ws.LastColumnUsed()?.ColumnNumber() ?? 0;
 
-        // Fixed columns are Template/Phase/Workstream/Focus Area/Team/Role/Person/Pool/Notes (1-9);
+        // Fixed columns are Workstream/Team/Pool/Role/Person/Template/Phase/Focus Area/Notes (1-9);
         // month columns are identified by a parseable date header.
         var monthColumns = FindMonthColumns(headerRow, lastColumn);
 
@@ -100,8 +99,8 @@ public static class ExcelImportParser
         for (var r = headerRowNum + 1; r <= lastRow; r++)
         {
             var row = ws.Row(r);
-            var team = row.Cell(5).GetString().Trim();
-            var role = row.Cell(6).GetString().Trim();
+            var team = row.Cell(2).GetString().Trim();
+            var role = row.Cell(4).GetString().Trim();
 
             // A fully blank row (common at the end of a used range) is skipped, not an error.
             if (string.IsNullOrWhiteSpace(team) && string.IsNullOrWhiteSpace(role) &&
@@ -110,20 +109,20 @@ public static class ExcelImportParser
                 continue;
             }
 
-            var personName = NullIfBlank(row.Cell(7).GetString());
+            var personName = NullIfBlank(row.Cell(5).GetString());
             var importRow = new ImportRow
             {
                 RowNumber = r,
-                TemplateName = NullIfBlank(row.Cell(1).GetString()),
-                PhaseName = NullIfBlank(row.Cell(2).GetString()),
-                WorkstreamName = NullIfBlank(row.Cell(3).GetString()),
-                FocusAreaName = NullIfBlank(row.Cell(4).GetString()),
+                WorkstreamName = NullIfBlank(row.Cell(1).GetString()),
                 TeamName = team,
                 RoleName = role,
                 PersonName = personName,
                 // The Pool column only applies to open demand rows (blank Person) -
                 // when a Person is named, that person's own pool is the effective source.
-                PoolName = personName is null ? NullIfBlank(row.Cell(8).GetString()) : null,
+                PoolName = personName is null ? NullIfBlank(row.Cell(3).GetString()) : null,
+                TemplateName = NullIfBlank(row.Cell(6).GetString()),
+                PhaseName = NullIfBlank(row.Cell(7).GetString()),
+                FocusAreaName = NullIfBlank(row.Cell(8).GetString()),
                 Notes = NullIfBlank(row.Cell(9).GetString())
             };
 

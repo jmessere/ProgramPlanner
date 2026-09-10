@@ -14,7 +14,7 @@ public class ExcelExportServiceTests
         var lastRow = ws.LastRowUsed()?.RowNumber() ?? 0;
         for (var r = 1; r <= lastRow; r++)
         {
-            if (ws.Cell(r, 1).GetString() == "Template" && ws.Cell(r, 3).GetString() == "Workstream")
+            if (ws.Cell(r, 1).GetString() == "Workstream" && ws.Cell(r, 2).GetString() == "Team")
             {
                 return r;
             }
@@ -88,7 +88,7 @@ public class ExcelExportServiceTests
         var rpSheet = workbook.Worksheet("Resource Plan");
         var headerRow = FindResourcePlanHeaderRow(rpSheet);
         var dataRow = headerRow + 1;
-        Assert.Equal("Jane Smith", rpSheet.Cell(dataRow, 7).GetString());
+        Assert.Equal("Jane Smith", rpSheet.Cell(dataRow, 5).GetString());
         // Jan column is column 10 (9 fixed headers + 1); value should be 1.0
         Assert.Equal(1.0, rpSheet.Cell(dataRow, 10).GetDouble());
     }
