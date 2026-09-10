@@ -1,0 +1,50 @@
+@page "/gantt/teams"
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Application.Services.GanttService GanttService
+
+<PageTitle>Team-Template Gantt</PageTitle>
+<h1>Team-Template Gantt</h1>
+<p>Each bar is a Team's assignment to a Template. Drag to move, drag the right edge to resize.</p>
+
+@if (_loading)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <div class="gantt-toolbar">
+        <span class="save-status">@_status</span>
+    </div>
+    <GanttChart Bars="_bars" HorizonStart="_horizonStart" HorizonEnd="_horizonEnd"
+                GroupHeader="Team" OnBarChanged="OnAssignmentChangedAsync" />
+}
+
+@code {
+    private bool _loading = true;
+    private List<WmsResourcePlanner.Application.DTOs.GanttBar> _bars = new();
+    private DateOnly _horizonStart;
+    private DateOnly _horizonEnd;
+    private string _status = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _horizonStart = new DateOnly(DateTime.Today.Year, 1, 1);
+        _horizonEnd = _horizonStart.AddMonths(59);
+        await LoadAsync();
+        _loading = false;
+    }
+
+    private async Task LoadAsync()
+    {
+        _bars = await GanttService.GetTeamTemplateAssignmentBarsAsync();
+        foreach (var b in _bars) b.Color = "assignment";
+    }
+
+    private async Task OnAssignmentChangedAsync((int Id, DateOnly Start, DateOnly End) change)
+    {
+        await GanttService.UpdateTeamTemplateAssignmentDatesAsync(change.Id, change.Start, change.End);
+        _status = $"Saved assignment dates at {DateTime.Now:T}";
+        await LoadAsync();
+        StateHasChanged();
+    }
+}

@@ -1,0 +1,75 @@
+@page "/gantt/resources"
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Application.Services.GanttService GanttService
+@inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
+@using Microsoft.EntityFrameworkCore
+@using WmsResourcePlanner.Domain.Entities
+
+<PageTitle>Resource Gantt</PageTitle>
+<h1>Resource Gantt</h1>
+<p>Each bar is a resource-plan allocation (blue = named, orange = open demand). Drag to move, drag the right edge
+to resize. FTE is preserved; only dates change. Editing here updates the same records shown on the Resource Plan grid.</p>
+
+@if (_loading)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <div class="gantt-toolbar">
+        <label>Scenario:
+            <select @bind="_scenarioId" @bind:after="LoadAsync">
+                @foreach (var s in _scenarios)
+                {
+                    <option value="@s.Id">@s.Name</option>
+                }
+            </select>
+        </label>
+        <span class="save-status">@_status</span>
+    </div>
+    @if (_bars.Count == 0)
+    {
+        <p>No resource plan lines in this scenario yet.</p>
+    }
+    else
+    {
+        <GanttChart Bars="_bars" HorizonStart="_horizonStart" HorizonEnd="_horizonEnd"
+                    GroupHeader="Person / Open Demand" OnBarChanged="OnLineChangedAsync" />
+    }
+}
+
+@code {
+    private bool _loading = true;
+    private int _scenarioId;
+    private List<PlanningScenario> _scenarios = new();
+    private List<WmsResourcePlanner.Application.DTOs.GanttBar> _bars = new();
+    private DateOnly _horizonStart;
+    private DateOnly _horizonEnd;
+    private string _status = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _horizonStart = new DateOnly(DateTime.Today.Year, 1, 1);
+        _horizonEnd = _horizonStart.AddMonths(59);
+
+        var program = await Db.Programs.FirstAsync();
+        _scenarios = await Db.PlanningScenarios.Where(s => s.ProgramId == program.Id).ToListAsync();
+        _scenarioId = _scenarios.FirstOrDefault(s => s.IsBaseline)?.Id ?? _scenarios.First().Id;
+
+        await LoadAsync();
+        _loading = false;
+    }
+
+    private async Task LoadAsync()
+    {
+        _bars = await GanttService.GetResourcePlanLineBarsAsync(_scenarioId);
+    }
+
+    private async Task OnLineChangedAsync((int Id, DateOnly Start, DateOnly End) change)
+    {
+        await GanttService.UpdateResourcePlanLineDatesAsync(change.Id, change.Start, change.End);
+        _status = $"Saved allocation dates at {DateTime.Now:T}";
+        await LoadAsync();
+        StateHasChanged();
+    }
+}

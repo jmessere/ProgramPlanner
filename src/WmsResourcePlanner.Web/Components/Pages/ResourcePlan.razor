@@ -3,6 +3,7 @@
 @inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
 @inject WmsResourcePlanner.Application.Services.ResourcePlanGridService GridService
 @inject WmsResourcePlanner.Application.Services.ScenarioService ScenarioService
+@inject WmsResourcePlanner.Application.Services.ValidationService ValidationService
 @using Microsoft.EntityFrameworkCore
 @using WmsResourcePlanner.Domain.Entities
 
@@ -91,7 +92,8 @@ else
                         </td>
                         @foreach (var mv in row.Months)
                         {
-                            <td style="text-align:right">
+                            var warning = GetWarning(row.Key, mv.Year, mv.Month);
+                            <td style="text-align:right" class="@(warning is null ? "" : "cell-warning")" title="@warning">
                                 <input type="number" step="0.05" min="0" style="width:52px;text-align:right"
                                        value="@(mv.Fte == 0 ? "" : mv.Fte.ToString("0.##"))"
                                        @onchange="e => OnCellChangedAsync(row, mv.Year, mv.Month, e.Value)" />
@@ -110,6 +112,7 @@ else
     private int _scenarioId;
     private List<PlanningScenario> _scenarios = new();
     private List<ResourcePlanGridRow> _rows = new();
+    private List<WmsResourcePlanner.Application.Services.GridWarning> _warnings = new();
     private List<DateOnly> _monthHeaders = new();
     private DateOnly _horizonStart;
     private DateOnly _horizonEnd;
@@ -158,7 +161,14 @@ else
     {
         _loading = true;
         _rows = await GridService.GetGridAsync(_scenarioId, _horizonStart, _horizonEnd);
+        _warnings = await ValidationService.GetWarningsAsync(_scenarioId, _horizonStart, _horizonEnd);
         _loading = false;
+    }
+
+    private string? GetWarning(ResourcePlanRowKey key, int year, int month)
+    {
+        var matches = _warnings.Where(w => w.Key == key && w.Year == year && w.Month == month).ToList();
+        return matches.Count == 0 ? null : string.Join(" ", matches.Select(m => m.Message));
     }
 
     private async Task DuplicateScenarioAsync()
