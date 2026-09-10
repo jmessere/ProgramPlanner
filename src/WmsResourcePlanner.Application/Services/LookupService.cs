@@ -125,4 +125,19 @@ public class LookupService
         await _db.SaveChangesAsync(ct);
         return created;
     }
+
+    public async Task<Template> GetOrCreateTemplateAsync(int programId, string name, CancellationToken ct = default)
+    {
+        var existing = await _db.Templates.FirstOrDefaultAsync(
+            t => t.ProgramId == programId && t.Name.ToLower() == name.Trim().ToLower(), ct);
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var created = new Template { ProgramId = programId, Name = name.Trim(), Status = TemplateStatus.Active };
+        _db.Templates.Add(created);
+        await _db.SaveChangesAsync(ct);
+        return created;
+    }
 }

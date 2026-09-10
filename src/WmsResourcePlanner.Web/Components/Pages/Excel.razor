@@ -1,10 +1,12 @@
 @page "/excel"
 @rendermode InteractiveServer
 @inject WmsResourcePlanner.Infrastructure.Excel.ExcelExportService ExportService
+@inject WmsResourcePlanner.Application.Services.ImportService ImportService
 @inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
 @inject IJSRuntime JS
 @using Microsoft.EntityFrameworkCore
 @using WmsResourcePlanner.Domain.Entities
+@using WmsResourcePlanner.Application.DTOs
 
 <PageTitle>Excel</PageTitle>
 <h1>Excel</h1>
@@ -21,18 +23,95 @@
 
 <p><button class="btn" @onclick="ExportAsync" disabled="@_exporting">@(_exporting ? "Generating..." : "Export Resource Plan Workbook")</button></p>
 
-<p class="save-status">Excel import (upload + preview) is not yet implemented in this build - see /docs/implementation-status.md.</p>
+<hr />
+
+<h2>Import</h2>
+<p>Upload a workbook with a "Resource Plan" sheet in the same layout as the export
+(Template | Phase | Workstream | Team | Role | Person | Notes, then one column per month).
+A blank Person is interpreted as open demand. New Teams, People, Roles, Workstreams, and
+Templates named in the sheet that don't already exist are resolved/created automatically.</p>
+
+<InputFile OnChange="OnFileSelectedAsync" accept=".xlsx" />
+@if (_parseError is not null)
+{
+    <p class="save-status" style="color:#b32121">@_parseError</p>
+}
+
+@if (_preview.Count > 0)
+{
+    <p>
+        Parsed @_preview.Count row(s): @_preview.Count(p => !p.HasErrors) valid,
+        @_preview.Count(p => p.HasErrors) with errors.
+        New: @_preview.Count(p => p.IsNewTeam) team(s), @_preview.Count(p => p.IsNewPerson) person(people),
+        @_preview.Count(p => p.IsNewRole) role(s), @_preview.Count(p => p.IsNewTemplate) template(s).
+    </p>
+    <label>Import into scenario:
+        <select @bind="_importScenarioId">
+            @foreach (var s in _scenarios)
+            {
+                <option value="@s.Id">@s.Name</option>
+            }
+        </select>
+    </label>
+    <button class="btn" @onclick="CommitAsync" disabled="@(_committing || _preview.All(p => p.HasErrors))">
+        @(_committing ? "Importing..." : "Commit Import")
+    </button>
+    <span class="save-status">@_commitStatus</span>
+
+    <div class="grid-scroll" style="margin-top:0.5rem">
+        <table class="data-grid">
+            <thead>
+                <tr>
+                    <th>Row</th><th>Template</th><th>Workstream</th><th>Team</th><th>Role</th><th>Person</th><th>Months</th><th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var p in _preview)
+                {
+                    <tr style="@(p.HasErrors ? "background:#fde8e8" : "")">
+                        <td>@p.RowNumber</td>
+                        <td>@p.TemplateName @(p.IsNewTemplate ? "(new)" : "")</td>
+                        <td>@p.WorkstreamName @(p.IsNewWorkstream ? "(new)" : "")</td>
+                        <td>@p.TeamName @(p.IsNewTeam ? "(new)" : "")</td>
+                        <td>@p.RoleName @(p.IsNewRole ? "(new)" : "")</td>
+                        <td>
+                            @if (p.IsOpenDemand)
+                            {
+                                <span class="badge open-demand">Open demand</span>
+                            }
+                            else
+                            {
+                                <span class="badge named">@p.PersonName @(p.IsNewPerson ? "(new)" : "")</span>
+                            }
+                        </td>
+                        <td>@p.MonthSummary</td>
+                        <td style="color:#b32121">@string.Join("; ", p.Errors)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
 
 @code {
     private List<PlanningScenario> _scenarios = new();
     private int _scenarioId;
+    private int _importScenarioId;
+    private int _programId;
     private bool _exporting;
+    private bool _committing;
+    private string? _parseError;
+    private string _commitStatus = string.Empty;
+    private List<ImportRow> _parsedRows = new();
+    private List<ImportPreviewItem> _preview = new();
 
     protected override async Task OnInitializedAsync()
     {
         var program = await Db.Programs.FirstAsync();
+        _programId = program.Id;
         _scenarios = await Db.PlanningScenarios.Where(s => s.ProgramId == program.Id).ToListAsync();
         _scenarioId = _scenarios.FirstOrDefault(s => s.IsBaseline)?.Id ?? _scenarios.First().Id;
+        _importScenarioId = _scenarioId;
     }
 
     private async Task ExportAsync()
@@ -45,5 +124,39 @@
 
         var base64 = Convert.ToBase64String(bytes);
         await JS.InvokeVoidAsync("wmsDownload", "ResourcePlan.xlsx", base64);
+    }
+
+    private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
+    {
+        _parseError = null;
+        _preview.Clear();
+        _parsedRows.Clear();
+        _commitStatus = string.Empty;
+
+        try
+        {
+            await using var stream = e.File.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            ms.Position = 0;
+
+            _parsedRows = WmsResourcePlanner.Infrastructure.Excel.ExcelImportParser.ParseResourcePlanSheet(ms);
+            _preview = await ImportService.PreviewAsync(_programId, _parsedRows);
+        }
+        catch (Exception ex)
+        {
+            _parseError = $"Could not read workbook: {ex.Message}";
+        }
+    }
+
+    private async Task CommitAsync()
+    {
+        _committing = true;
+        var count = await ImportService.CommitAsync(_programId, _importScenarioId, _parsedRows);
+        _committing = false;
+        _commitStatus = $"Imported {count} row(s) into scenario at {DateTime.Now:T}.";
+
+        // Refresh preview flags (entities just created are no longer "new").
+        _preview = await ImportService.PreviewAsync(_programId, _parsedRows);
     }
 }
