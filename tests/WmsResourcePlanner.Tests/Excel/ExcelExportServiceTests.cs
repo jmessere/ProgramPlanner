@@ -130,6 +130,84 @@ public class ExcelExportServiceTests
     }
 
     [Fact]
+    public async Task ExportAsync_ResourcePlanSheet_HasDropdownsSourcedFromReferenceData()
+    {
+        using var db = TestDbFactory.Create();
+        var program = new Program { Name = "P" };
+        db.Programs.Add(program);
+        await db.SaveChangesAsync();
+        var scenario = new PlanningScenario { ProgramId = program.Id, Name = "Baseline", IsBaseline = true };
+        var role = new Role { ProgramId = program.Id, Name = "BA" };
+        var team = new Team { ProgramId = program.Id, Name = "Inbound T1", TeamType = "Template Build" };
+        var pool = new ResourcePool { ProgramId = program.Id, Name = "Internal FTE", Type = ResourcePoolType.Internal, AverageRate = 80m };
+        var workstream = new Workstream { ProgramId = program.Id, Name = "Inbound" };
+        db.PlanningScenarios.Add(scenario);
+        db.Roles.Add(role);
+        db.Teams.Add(team);
+        db.ResourcePools.Add(pool);
+        db.Workstreams.Add(workstream);
+        var person = new Person { ProgramId = program.Id, FirstName = "Jane", LastName = "Smith", DisplayName = "Jane Smith", ResourcePool = pool };
+        db.People.Add(person);
+        await db.SaveChangesAsync();
+        db.ResourcePlanLines.Add(new ResourcePlanLine
+        {
+            ProgramId = program.Id, ScenarioId = scenario.Id, TeamId = team.Id, RoleId = role.Id, PersonId = person.Id,
+            WorkstreamId = workstream.Id,
+            StartDate = new DateOnly(2027, 1, 1), EndDate = new DateOnly(2027, 6, 30), Fte = 1.0m
+        });
+        await db.SaveChangesAsync();
+
+        var sut = new ExcelExportService(db, new ResourceTransformationService());
+        var bytes = await sut.ExportAsync(scenario.Id, new DateOnly(2027, 1, 1), new DateOnly(2027, 12, 31));
+        using var stream = new MemoryStream(bytes);
+        using var workbook = new ClosedXML.Excel.XLWorkbook(stream);
+
+        var rpSheet = workbook.Worksheet("Resource Plan");
+        var headerRow = FindResourcePlanHeaderRow(rpSheet);
+        var dataRow = headerRow + 1;
+
+        // Workstream (col 1), Team (col 2), Pool (col 3), Role (col 4) each
+        // have an in-cell List dropdown sourced live from the Reference
+        // Data sheet, so the value referenced should live on that sheet.
+        for (var col = 1; col <= 4; col++)
+        {
+            Assert.True(rpSheet.Cell(dataRow, col).HasDataValidation, $"Column {col} should have a data validation rule.");
+            var dv = rpSheet.Cell(dataRow, col).GetDataValidation();
+            Assert.Equal(ClosedXML.Excel.XLAllowedValues.List, dv.AllowedValues);
+            Assert.Contains("Reference Data", dv.Value);
+        }
+    }
+
+    [Fact]
+    public async Task ExportAsync_ReferenceDataSheet_PeopleResourcePoolColumnHasDropdown()
+    {
+        using var db = TestDbFactory.Create();
+        var program = new Program { Name = "P" };
+        db.Programs.Add(program);
+        await db.SaveChangesAsync();
+        var scenario = new PlanningScenario { ProgramId = program.Id, Name = "Baseline", IsBaseline = true };
+        var pool = new ResourcePool { ProgramId = program.Id, Name = "Internal FTE", Type = ResourcePoolType.Internal, AverageRate = 80m };
+        db.PlanningScenarios.Add(scenario);
+        db.ResourcePools.Add(pool);
+        var person = new Person { ProgramId = program.Id, FirstName = "Jane", LastName = "Smith", DisplayName = "Jane Smith", ResourcePool = pool };
+        db.People.Add(person);
+        await db.SaveChangesAsync();
+
+        var sut = new ExcelExportService(db, new ResourceTransformationService());
+        var bytes = await sut.ExportAsync(scenario.Id, new DateOnly(2027, 1, 1), new DateOnly(2027, 12, 31));
+        using var stream = new MemoryStream(bytes);
+        using var workbook = new ClosedXML.Excel.XLWorkbook(stream);
+
+        var refSheet = workbook.Worksheet("Reference Data");
+        // People table: Name (col 1), Resource Pool (col 2). Row 2 is the
+        // header, row 3 is the first data row.
+        Assert.Equal("Resource Pool", refSheet.Cell(2, 2).GetString());
+        Assert.True(refSheet.Cell(3, 2).HasDataValidation);
+        var dv = refSheet.Cell(3, 2).GetDataValidation();
+        Assert.Equal(ClosedXML.Excel.XLAllowedValues.List, dv.AllowedValues);
+    }
+
+    [Fact]
     public async Task ExportAsync_TemplatePlanTable_HasNoTeamColumnAndMarksActiveMonthsAlignedWithResourcePlan()
     {
         using var db = TestDbFactory.Create();

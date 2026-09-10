@@ -2119,18 +2119,16 @@ Users can maintain the lists directly.
 
 Use standard Excel dropdowns where helpful.
 
-Examples:
+Implemented on the Resource Plan table: Workstream, Team, Pool, and Role
+each have an in-cell List dropdown sourced live from the corresponding
+Reference Data list (Workstreams, Teams, Resource Pools, Roles), so
+values pick from the master list instead of being retyped/mistyped. The
+Reference Data sheet's own People table also has a dropdown on its
+"Resource Pool" column, sourced from the Resource Pools list.
 
-* Template
-* Phase
-* Workstream
-* Team
-* Role
-* Person
-
-Dropdowns are conveniences, not restrictions.
-
-Where technically practical, users must still be able to type new values.
+Dropdowns are conveniences, not restrictions: validation uses the Warning
+error style (not Stop), so a user typing a brand-new value not yet in the
+list gets a warning prompt but can still keep it.
 
 ---
 

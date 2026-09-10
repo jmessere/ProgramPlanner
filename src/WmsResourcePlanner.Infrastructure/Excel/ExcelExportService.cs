@@ -55,9 +55,19 @@ public class ExcelExportService
         using var workbook = new XLWorkbook();
 
         BuildInstructionsSheet(workbook);
-        var rpLayout = await BuildResourcePlanSheetAsync(workbook, monthly, sample, months, ct);
         var refCols = await BuildReferenceDataSheetAsync(workbook, pools, ct);
+        var rpLayout = await BuildResourcePlanSheetAsync(workbook, monthly, sample, months, refCols, ct);
         BuildSummarySheet(workbook, months, lines, pools, refCols, rpLayout);
+
+        // Reference Data is built before Resource Plan (above) so its
+        // reference-list ranges/counts are known in time to wire up the
+        // Resource Plan dropdowns, but the desired sheet tab order is
+        // Instructions, Resource Plan, Reference Data, Summary - so fix up
+        // the tab order explicitly now that all sheets exist.
+        workbook.Worksheet("Instructions").Position = 1;
+        workbook.Worksheet("Resource Plan").Position = 2;
+        workbook.Worksheet("Reference Data").Position = 3;
+        workbook.Worksheet("Summary").Position = 4;
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
@@ -101,6 +111,7 @@ public class ExcelExportService
         Dictionary<Application.DTOs.ResourcePlanRowKey, List<Application.DTOs.MonthlyValue>> monthly,
         Dictionary<Application.DTOs.ResourcePlanRowKey, ResourcePlanLine> sample,
         List<DateOnly> months,
+        ReferenceDataColumns refCols,
         CancellationToken ct)
     {
         var ws = workbook.Worksheets.Add("Resource Plan");
@@ -220,6 +231,37 @@ public class ExcelExportService
 
         var lastDataRow = row - 1;
 
+        // In-cell dropdowns for Workstream/Team/Pool/Role, sourced live
+        // from the Reference Data sheet's master lists, so planners pick
+        // from existing values instead of retyping/mistyping them. Applied
+        // over a generous row range (not just the current data rows) so
+        // rows a planner adds later in Excel still get the dropdown.
+        var refWorkstreams = workbook.Worksheet("Reference Data").Range(3, refCols.WorkstreamsCol, 2 + Math.Max(refCols.WorkstreamsCount, 1), refCols.WorkstreamsCol);
+        var refTeams = workbook.Worksheet("Reference Data").Range(3, refCols.TeamsCol, 2 + Math.Max(refCols.TeamsCount, 1), refCols.TeamsCol);
+        var refPools = workbook.Worksheet("Reference Data").Range(3, refCols.ResourcePoolsCol, 2 + Math.Max(refCols.ResourcePoolsCount, 1), refCols.ResourcePoolsCol);
+        var refRoles = workbook.Worksheet("Reference Data").Range(3, refCols.RolesCol, 2 + Math.Max(refCols.RolesCount, 1), refCols.RolesCol);
+
+        // Warning (not Stop) error style: dropdowns are a convenience, not
+        // a hard restriction, so a planner can still type a brand-new
+        // value (e.g. a team not yet in Reference Data) and choose to
+        // keep it past the warning prompt.
+        var wsDv = ws.Range(firstDataRow, 1, RpMaxDataRow, 1).CreateDataValidation();
+        wsDv.List(refWorkstreams, true);
+        wsDv.ErrorStyle = XLErrorStyle.Warning;
+
+        var teamDv = ws.Range(firstDataRow, 2, RpMaxDataRow, 2).CreateDataValidation();
+        teamDv.List(refTeams, true);
+        teamDv.ErrorStyle = XLErrorStyle.Warning;
+
+        var poolDv = ws.Range(firstDataRow, 3, RpMaxDataRow, 3).CreateDataValidation();
+        poolDv.List(refPools, true);
+        poolDv.ErrorStyle = XLErrorStyle.Warning;
+
+        var roleDv = ws.Range(firstDataRow, 4, RpMaxDataRow, 4).CreateDataValidation();
+        roleDv.List(refRoles, true);
+        roleDv.ErrorStyle = XLErrorStyle.Warning;
+        ws.Range(firstDataRow, 4, RpMaxDataRow, 4).CreateDataValidation().List(refRoles, true);
+
         ws.Columns(1, fixedHeaders.Length).AdjustToContents();
 
         // Group (and collapse by default) the secondary/context columns
@@ -268,37 +310,55 @@ public class ExcelExportService
         return new ResourcePlanSheetLayout(resourcePlanHeaderRow, firstDataRow, Math.Max(lastDataRow, firstDataRow - 1));
     }
 
-    /// <summary>Column positions of key Reference Data tables, captured while
-    /// building that sheet so the Summary sheet can build live VLOOKUP
-    /// formulas against them instead of hardcoding column numbers that would
-    /// silently drift if the reference table order/width ever changes.</summary>
-    private readonly record struct ReferenceDataColumns(int PeopleCol, int ResourcePoolsCol);
+    /// <summary>Column positions (and row counts) of key Reference Data
+    /// tables, captured while building that sheet so the Summary sheet can
+    /// build live VLOOKUP formulas against them, and the Resource Plan
+    /// sheet can wire up in-cell dropdowns against them, instead of
+    /// hardcoding column numbers/ranges that would silently drift if the
+    /// reference table order/width ever changes.</summary>
+    private readonly record struct ReferenceDataColumns(
+        int PeopleCol,
+        int TeamsCol, int TeamsCount,
+        int RolesCol, int RolesCount,
+        int WorkstreamsCol, int WorkstreamsCount,
+        int ResourcePoolsCol, int ResourcePoolsCount);
 
     private async Task<ReferenceDataColumns> BuildReferenceDataSheetAsync(XLWorkbook workbook, List<ResourcePool> pools, CancellationToken ct)
     {
         var ws = workbook.Worksheets.Add("Reference Data");
         var col = 1;
 
+        var people = await _db.People.Include(p => p.ResourcePool).OrderBy(p => p.DisplayName).ToListAsync(ct);
+        var teams = await _db.Teams.OrderBy(t => t.Name).ToListAsync(ct);
+        var roles = await _db.Roles.OrderBy(r => r.Name).ToListAsync(ct);
+        var templates = await _db.Templates.OrderBy(t => t.SortOrder).ToListAsync(ct);
+        var workstreams = await _db.Workstreams.OrderBy(w => w.Name).ToListAsync(ct);
+        var focusAreas = await _db.FocusAreas.OrderBy(f => f.Name).ToListAsync(ct);
+        var sites = await _db.Sites.OrderBy(s => s.Name).ToListAsync(ct);
+
         var peopleCol = col;
-        col = WriteTable(ws, col, "People", (await _db.People.Include(p => p.ResourcePool).OrderBy(p => p.DisplayName).ToListAsync(ct))
+        col = WriteTable(ws, col, "People", people
             .Select(p => new[] { p.DisplayName, p.ResourcePool?.Name ?? string.Empty, p.DefaultCapacityFte.ToString("0.##") }), new[] { "Name", "Resource Pool", "Capacity FTE" });
 
-        col = WriteTable(ws, col, "Teams", (await _db.Teams.OrderBy(t => t.Name).ToListAsync(ct))
+        var teamsCol = col;
+        col = WriteTable(ws, col, "Teams", teams
             .Select(t => new[] { t.Name, t.TeamType }), new[] { "Name", "Team Type" });
 
-        col = WriteTable(ws, col, "Roles", (await _db.Roles.OrderBy(r => r.Name).ToListAsync(ct))
+        var rolesCol = col;
+        col = WriteTable(ws, col, "Roles", roles
             .Select(r => new[] { r.Name, r.Category ?? string.Empty }), new[] { "Name", "Category" });
 
-        col = WriteTable(ws, col, "Templates", (await _db.Templates.OrderBy(t => t.SortOrder).ToListAsync(ct))
+        col = WriteTable(ws, col, "Templates", templates
             .Select(t => new[] { t.Name, t.Status.ToString() }), new[] { "Name", "Status" });
 
-        col = WriteTable(ws, col, "Workstreams", (await _db.Workstreams.OrderBy(w => w.Name).ToListAsync(ct))
+        var workstreamsCol = col;
+        col = WriteTable(ws, col, "Workstreams", workstreams
             .Select(w => new[] { w.Name }), new[] { "Name" });
 
-        col = WriteTable(ws, col, "Focus Areas", (await _db.FocusAreas.OrderBy(f => f.Name).ToListAsync(ct))
+        col = WriteTable(ws, col, "Focus Areas", focusAreas
             .Select(f => new[] { f.Name }), new[] { "Name" });
 
-        col = WriteTable(ws, col, "Sites", (await _db.Sites.OrderBy(s => s.Name).ToListAsync(ct))
+        col = WriteTable(ws, col, "Sites", sites
             .Select(s => new[] { s.Name, s.Region ?? string.Empty }), new[] { "Name", "Region" });
 
         var resourcePoolsCol = col;
@@ -306,9 +366,25 @@ public class ExcelExportService
             .Select(p => new[] { p.Name, p.Type.ToString(), p.CostCenter ?? string.Empty, p.AverageRate.ToString("0.00"), p.Vendor ?? string.Empty, p.Notes ?? string.Empty }),
             new[] { "Name", "Type", "Cost Center", "Average Rate", "Vendor", "Notes" });
 
+        // In-cell dropdown for People's "Resource Pool" column, sourced
+        // live from the Resource Pools list above, so pools are picked
+        // from the master list instead of retyped/mistyped.
+        if (people.Count > 0)
+        {
+            var poolNameRange = ws.Range(3, resourcePoolsCol, 2 + Math.Max(pools.Count, 1), resourcePoolsCol);
+            var poolDv = ws.Range(3, peopleCol + 1, 2 + people.Count, peopleCol + 1).CreateDataValidation();
+            poolDv.List(poolNameRange, true);
+            poolDv.ErrorStyle = XLErrorStyle.Warning;
+        }
+
         ws.Columns().AdjustToContents();
 
-        return new ReferenceDataColumns(peopleCol, resourcePoolsCol);
+        return new ReferenceDataColumns(
+            peopleCol,
+            teamsCol, teams.Count,
+            rolesCol, roles.Count,
+            workstreamsCol, workstreams.Count,
+            resourcePoolsCol, pools.Count);
     }
 
     private static int WriteTable(IXLWorksheet ws, int startCol, string title, IEnumerable<string[]> rows, string[] headers)
