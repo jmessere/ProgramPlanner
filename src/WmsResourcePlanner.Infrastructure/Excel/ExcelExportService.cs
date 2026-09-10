@@ -53,9 +53,9 @@ public class ExcelExportService
 
         BuildInstructionsSheet(workbook);
         BuildResourcePlanSheet(workbook, monthly, sample, months);
-        await BuildTemplatePlanSheetAsync(workbook, ct);
+        await BuildTemplatePlanSheetAsync(workbook, months, ct);
         await BuildReferenceDataSheetAsync(workbook, ct);
-        await BuildSummarySheetAsync(workbook, scenarioId, horizonStart, horizonEnd, ct);
+        BuildSummarySheet(workbook, months, lines);
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
@@ -68,9 +68,9 @@ public class ExcelExportService
         ws.Cell(1, 1).Value = "Resource Plan Workbook";
         ws.Cell(1, 1).Style.Font.SetBold().Font.SetFontSize(16);
         ws.Cell(3, 1).Value = "This workbook contains the current resource plan across a multi-year timeline.";
-        ws.Cell(4, 1).Value = "Resource Plan: one row per planning line. Monthly columns hold FTE (0.25 = quarter FTE, 1.0 = one FTE).";
+        ws.Cell(4, 1).Value = "Resource Plan: one row per planning line, filterable via the column header dropdowns. Monthly columns hold FTE (0.25 = quarter FTE, 1.0 = one FTE).";
         ws.Cell(5, 1).Value = "A populated Person means a named allocation. A blank Person means open (unfilled) demand.";
-        ws.Cell(6, 1).Value = "Template Plan: template phases and team assignments with their date ranges.";
+        ws.Cell(6, 1).Value = "Template Plan: template phases with their date ranges, filterable, and a monthly timeline where an \"X\" marks the phase's active months (colored like a Gantt bar). Team assignments are not shown here - they are implied by the Team values already present on the Resource Plan sheet.";
         ws.Cell(7, 1).Value = "Reference Data: master lists (people, teams, roles, templates, workstreams, etc.).";
         ws.Cell(8, 1).Value = "Summary: filled/open FTE by month, gaps by role/team/template, and overallocated people.";
         ws.Columns().AdjustToContents();
@@ -130,14 +130,40 @@ public class ExcelExportService
         }
 
         ws.Columns(1, fixedHeaders.Length).AdjustToContents();
+
+        // AutoFilter (rather than a structured Excel Table/ListObject) gives
+        // every column - including the date-valued month headers - the
+        // standard filter-dropdown UX the user asked for, without the
+        // restrictions a ListObject would impose here (unique text-only
+        // headers, no coexisting frozen-pane quirks, etc.).
+        if (row > 2)
+        {
+            ws.Range(1, 1, row - 1, firstMonthCol + months.Count - 1).SetAutoFilter();
+        }
     }
 
-    private async Task BuildTemplatePlanSheetAsync(XLWorkbook workbook, CancellationToken ct)
+    private async Task BuildTemplatePlanSheetAsync(XLWorkbook workbook, List<DateOnly> months, CancellationToken ct)
     {
         var ws = workbook.Worksheets.Add("Template Plan");
-        string[] headers = { "Template", "Phase", "Team", "Start Date", "End Date", "Notes" };
+
+        // Team assignments are intentionally not shown here (per product
+        // direction): a Team's association with a Template is already
+        // implied by the Team values on the Resource Plan sheet, so this
+        // sheet only needs to show Templates and their Phases.
+        string[] headers = { "Template", "Phase", "Start Date", "End Date", "Notes" };
         for (var i = 0; i < headers.Length; i++) ws.Cell(1, i + 1).Value = headers[i];
+
+        var firstMonthCol = headers.Length + 1;
+        for (var i = 0; i < months.Count; i++)
+        {
+            var cell = ws.Cell(1, firstMonthCol + i);
+            cell.Value = months[i].ToDateTime(TimeOnly.MinValue);
+            cell.Style.DateFormat.Format = "mmm-yy";
+        }
+
         ws.Row(1).Style.Font.SetBold();
+        ws.SheetView.FreezeRows(1);
+        ws.SheetView.FreezeColumns(headers.Length);
 
         var row = 2;
 
@@ -146,29 +172,49 @@ public class ExcelExportService
         {
             ws.Cell(row, 1).Value = p.Template?.Name;
             ws.Cell(row, 2).Value = p.Name;
-            ws.Cell(row, 4).Value = p.StartDate.ToDateTime(TimeOnly.MinValue);
+            ws.Cell(row, 3).Value = p.StartDate.ToDateTime(TimeOnly.MinValue);
+            ws.Cell(row, 3).Style.DateFormat.Format = "mmm-yy";
+            ws.Cell(row, 4).Value = p.EndDate.ToDateTime(TimeOnly.MinValue);
             ws.Cell(row, 4).Style.DateFormat.Format = "mmm-yy";
-            ws.Cell(row, 5).Value = p.EndDate.ToDateTime(TimeOnly.MinValue);
-            ws.Cell(row, 5).Style.DateFormat.Format = "mmm-yy";
-            ws.Cell(row, 6).Value = p.Notes;
+            ws.Cell(row, 5).Value = p.Notes;
+
+            var lastXCol = -1;
+            for (var i = 0; i < months.Count; i++)
+            {
+                if (months[i] >= new DateOnly(p.StartDate.Year, p.StartDate.Month, 1) &&
+                    months[i] <= new DateOnly(p.EndDate.Year, p.EndDate.Month, 1))
+                {
+                    ws.Cell(row, firstMonthCol + i).Value = "X";
+                    lastXCol = firstMonthCol + i;
+                }
+            }
+
+            // Conditional formatting (not a one-time fill) so that if a user
+            // manually adds/removes "X" marks in this row before re-importing,
+            // the visual Gantt-bar-like coloring stays in sync automatically.
+            // Each phase gets the same color it's shown with everywhere else
+            // in the app (NameColorPalette, keyed by phase name).
+            if (lastXCol >= firstMonthCol)
+            {
+                var color = XLColor.FromHtml(Application.Services.NameColorPalette.ColorFor(p.Name));
+                ws.Range(row, firstMonthCol, row, firstMonthCol + months.Count - 1)
+                    .AddConditionalFormat()
+                    .WhenEquals("X")
+                    .Fill.SetBackgroundColor(color)
+                    .Font.SetFontColor(XLColor.White);
+            }
+
             row++;
         }
 
-        var assignments = await _db.TeamTemplateAssignments.Include(a => a.Template).Include(a => a.Team).OrderBy(a => a.Template!.Name).ToListAsync(ct);
-        foreach (var a in assignments)
+        ws.Columns(1, headers.Length).AdjustToContents();
+
+        if (row > 2)
         {
-            ws.Cell(row, 1).Value = a.Template?.Name;
-            ws.Cell(row, 3).Value = a.Team?.Name;
-            ws.Cell(row, 4).Value = a.StartDate.ToDateTime(TimeOnly.MinValue);
-            ws.Cell(row, 4).Style.DateFormat.Format = "mmm-yy";
-            ws.Cell(row, 5).Value = a.EndDate.ToDateTime(TimeOnly.MinValue);
-            ws.Cell(row, 5).Style.DateFormat.Format = "mmm-yy";
-            ws.Cell(row, 6).Value = a.Notes;
-            row++;
+            ws.Range(1, 1, row - 1, firstMonthCol + months.Count - 1).SetAutoFilter();
         }
-
-        ws.Columns().AdjustToContents();
     }
+
 
     private async Task BuildReferenceDataSheetAsync(XLWorkbook workbook, CancellationToken ct)
     {
@@ -222,15 +268,28 @@ public class ExcelExportService
         return startCol + headers.Length + 1;
     }
 
-    private async Task BuildSummarySheetAsync(XLWorkbook workbook, int scenarioId, DateOnly horizonStart, DateOnly horizonEnd, CancellationToken ct)
+    // Resource Plan sheet's fixed column layout (kept in sync with
+    // BuildResourcePlanSheet above) - used to build live formula
+    // references from the Summary sheet instead of baking in static
+    // snapshot values, so the Summary recalculates if a user edits the
+    // Resource Plan sheet directly in Excel.
+    private const int RpTeamCol = 5;
+    private const int RpRoleCol = 6;
+    private const int RpPersonCol = 7;
+    private const int RpFirstMonthCol = 9;
+
+    // A generous fixed row bound (rather than a true whole-column
+    // reference) so header-row cells - which hold text like "Person" or a
+    // month date serial - are never swept into the sums below.
+    private const int RpMaxDataRow = 100000;
+
+    private void BuildSummarySheet(XLWorkbook workbook, List<DateOnly> months, List<ResourcePlanLine> lines)
     {
         var ws = workbook.Worksheets.Add("Summary");
+        var rpWs = workbook.Worksheet("Resource Plan");
 
-        var lines = await _db.ResourcePlanLines.Where(r => r.ScenarioId == scenarioId)
-            .Include(r => r.Role).Include(r => r.Team).ToListAsync(ct);
-
-        var filled = _engine.ExpandToMonthly(lines.Where(l => l.PersonId != null), horizonStart, horizonEnd);
-        var open = _engine.ExpandToMonthly(lines.Where(l => l.PersonId == null), horizonStart, horizonEnd);
+        string ColLetter(int col) => rpWs.Cell(1, col).Address.ColumnLetter;
+        string RpRange(int col) => $"'Resource Plan'!${ColLetter(col)}$2:${ColLetter(col)}${RpMaxDataRow}";
 
         ws.Cell(1, 1).Value = "Filled FTE by Month";
         ws.Cell(1, 1).Style.Font.SetBold();
@@ -238,33 +297,47 @@ public class ExcelExportService
         ws.Cell(2, 2).Value = "Filled FTE";
         ws.Cell(2, 3).Value = "Open FTE";
         ws.Cell(2, 4).Value = "Total Need";
+        ws.Row(2).Style.Font.SetBold();
 
-        var months = new List<DateOnly>();
-        var cursor = new DateOnly(horizonStart.Year, horizonStart.Month, 1);
-        var end = new DateOnly(horizonEnd.Year, horizonEnd.Month, 1);
-        while (cursor <= end) { months.Add(cursor); cursor = cursor.AddMonths(1); }
+        var personRange = RpRange(RpPersonCol);
 
         var row = 3;
         foreach (var m in months)
         {
-            var filledFte = filled.Values.SelectMany(v => v).Where(v => v.Year == m.Year && v.Month == m.Month).Sum(v => v.Fte);
-            var openFte = open.Values.SelectMany(v => v).Where(v => v.Year == m.Year && v.Month == m.Month).Sum(v => v.Fte);
+            var monthCol = RpFirstMonthCol + months.IndexOf(m);
+            var monthRange = RpRange(monthCol);
+
             ws.Cell(row, 1).Value = m.ToDateTime(TimeOnly.MinValue);
             ws.Cell(row, 1).Style.DateFormat.Format = "mmm-yy";
-            ws.Cell(row, 2).Value = filledFte;
-            ws.Cell(row, 3).Value = openFte;
-            ws.Cell(row, 4).Value = filledFte + openFte;
+            ws.Cell(row, 2).FormulaA1 = $"=SUMIFS({monthRange},{personRange},\"<>\")";
+            ws.Cell(row, 3).FormulaA1 = $"=SUMIFS({monthRange},{personRange},\"\")";
+            ws.Cell(row, 4).FormulaA1 = $"=B{row}+C{row}";
             row++;
         }
+
+        // Helper "Row Total FTE" column at the end of the Resource Plan
+        // sheet: one formula per data row summing that row's months, so the
+        // Role/Team breakdowns below can SUMIFS a single column instead of
+        // re-summing every month column per group.
+        var rowTotalCol = RpFirstMonthCol + months.Count;
+        rpWs.Cell(1, rowTotalCol).Value = "Row Total FTE";
+        rpWs.Cell(1, rowTotalCol).Style.Font.SetBold();
+        var rpLastRow = 1 + lines.Select(l => l.ToRowKey()).Distinct().Count();
+        for (var r = 2; r <= rpLastRow; r++)
+        {
+            rpWs.Cell(r, rowTotalCol).FormulaA1 =
+                $"=SUM({ColLetter(RpFirstMonthCol)}{r}:{ColLetter(RpFirstMonthCol + months.Count - 1)}{r})";
+        }
+        var rowTotalRange = RpRange(rowTotalCol);
 
         row += 2;
         ws.Cell(row, 1).Value = "Open FTE by Role (current)";
         ws.Cell(row, 1).Style.Font.SetBold();
         row++;
-        foreach (var g in lines.Where(l => l.PersonId == null).GroupBy(l => l.Role?.Name ?? "(unspecified)"))
+        foreach (var roleName in lines.Where(l => l.PersonId == null).Select(l => l.Role?.Name ?? "(unspecified)").Distinct().OrderBy(n => n))
         {
-            ws.Cell(row, 1).Value = g.Key;
-            ws.Cell(row, 2).Value = g.Sum(l => l.Fte);
+            ws.Cell(row, 1).Value = roleName;
+            ws.Cell(row, 2).FormulaA1 = $"=SUMIFS({rowTotalRange},{RpRange(RpRoleCol)},A{row},{personRange},\"\")";
             row++;
         }
 
@@ -272,13 +345,14 @@ public class ExcelExportService
         ws.Cell(row, 1).Value = "Open FTE by Team (current)";
         ws.Cell(row, 1).Style.Font.SetBold();
         row++;
-        foreach (var g in lines.Where(l => l.PersonId == null).GroupBy(l => l.Team?.Name ?? "(unspecified)"))
+        foreach (var teamName in lines.Where(l => l.PersonId == null).Select(l => l.Team?.Name ?? "(unspecified)").Distinct().OrderBy(n => n))
         {
-            ws.Cell(row, 1).Value = g.Key;
-            ws.Cell(row, 2).Value = g.Sum(l => l.Fte);
+            ws.Cell(row, 1).Value = teamName;
+            ws.Cell(row, 2).FormulaA1 = $"=SUMIFS({rowTotalRange},{RpRange(RpTeamCol)},A{row},{personRange},\"\")";
             row++;
         }
 
         ws.Columns().AdjustToContents();
     }
 }
+

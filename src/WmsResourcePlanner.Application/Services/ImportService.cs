@@ -185,4 +185,56 @@ public class ImportService
 
         return committed;
     }
+
+    /// <summary>
+    /// Commits valid Template Plan rows: gets-or-creates the Template, then
+    /// finds an existing TemplatePhase by (Template, Phase name -
+    /// case-insensitive) and updates its dates/notes, or creates a new
+    /// phase (appended after the current max SortOrder) if none exists.
+    /// This is what makes the "X" re-import workflow adjust dates: the
+    /// parser has already derived StartDate/EndDate from the marked
+    /// months, so this method just persists whatever it's given.
+    /// </summary>
+    public async Task<int> CommitTemplatePlanAsync(int programId, List<TemplatePlanImportRow> rows, CancellationToken ct = default)
+    {
+        var committed = 0;
+
+        foreach (var row in rows.Where(r => r.Errors.Count == 0 && r.StartDate is not null && r.EndDate is not null))
+        {
+            var template = await _lookup.GetOrCreateTemplateAsync(programId, row.TemplateName, ct);
+
+            var phase = await _db.TemplatePhases.FirstOrDefaultAsync(
+                p => p.TemplateId == template.Id && p.Name.ToLower() == row.PhaseName.Trim().ToLower(), ct);
+
+            if (phase is null)
+            {
+                var maxSortOrder = await _db.TemplatePhases
+                    .Where(p => p.TemplateId == template.Id)
+                    .Select(p => (int?)p.SortOrder)
+                    .MaxAsync(ct) ?? 0;
+
+                phase = new TemplatePhase
+                {
+                    TemplateId = template.Id,
+                    Name = row.PhaseName.Trim(),
+                    SortOrder = maxSortOrder + 1,
+                    StartDate = row.StartDate!.Value,
+                    EndDate = row.EndDate!.Value,
+                    Notes = row.Notes
+                };
+                _db.TemplatePhases.Add(phase);
+            }
+            else
+            {
+                phase.StartDate = row.StartDate!.Value;
+                phase.EndDate = row.EndDate!.Value;
+                phase.Notes = row.Notes;
+            }
+
+            await _db.SaveChangesAsync(ct);
+            committed++;
+        }
+
+        return committed;
+    }
 }

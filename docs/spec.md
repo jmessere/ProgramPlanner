@@ -1967,47 +1967,44 @@ Do not mention application compatibility.
 
 # 73. Template Plan Worksheet
 
-Provide a human-friendly schedule table.
+Provide a human-friendly, filterable schedule table showing Templates and
+their Phases only. Team-to-Template assignments are **not** shown on this
+sheet - a Team's association with a Template is already implied by the
+Team values present on the Resource Plan sheet, so repeating it here would
+be redundant.
 
-Recommended columns:
+Columns:
 
 ```text
 Template
 Phase
-Workstream
-Team
 Start Date
 End Date
 Notes
+<one column per month in the planning horizon>
 ```
 
-A row with:
+Each row represents one Template Phase. The monthly columns mark that
+phase's active months with an "X" (conditionally formatted with the same
+color used for that phase elsewhere in the app, so the row reads like a
+Gantt bar). Start Date/End Date are also shown explicitly and stay in sync
+with the "X" marks.
 
-```text
-Template + Phase + no Team
-```
+On re-import: if a row's "X" marks were added or removed, the phase's
+Start Date/End Date are derived from the first/last marked month and the
+Template Phase is updated accordingly. A row with no "X" marks falls back
+to its explicit Start Date/End Date cell values, which also supports
+typing in a brand-new phase without touching the monthly grid.
 
-represents a Template Phase.
+The sheet supports Excel's standard AutoFilter column-header dropdowns for
+filtering by Template or Phase.
 
-A row with:
+Example (Jan-Jun 2027 shown):
 
-```text
-Template + Team
-```
-
-represents a Team-to-Template assignment.
-
-Avoid requiring an Item Type field where context can reliably determine meaning.
-
-Example:
-
-| Template | Phase  | Workstream   | Team        | Start    | End      |
-| -------- | ------ | ------------ | ----------- | -------- | -------- |
-| T1       | Design |              |             | Jan 2027 | Mar 2027 |
-| T1       | Build  |              |             | Apr 2027 | Sep 2027 |
-| T1       |        | Inbound      | Inbound T1  | Jan 2027 | Dec 2027 |
-| T1       |        | Integrations | Integration | Jan 2027 | Jun 2027 |
-| T2       |        | Integrations | Integration | Apr 2027 | Dec 2027 |
+| Template | Phase  | Start Date | End Date | Notes | Jan-27 | Feb-27 | Mar-27 | Apr-27 | May-27 | Jun-27 |
+| -------- | ------ | ---------- | -------- | ----- | ------ | ------ | ------ | ------ | ------ | ------ |
+| T1       | Design | Jan 2027   | Mar 2027 |       | X      | X      | X      |        |        |        |
+| T1       | Build  | Apr 2027   | Jun 2027 |       |        |        |        | X      | X      | X      |
 
 ---
 
@@ -2067,6 +2064,11 @@ Provide useful standalone Excel reporting such as:
 * Overallocated people
 * Template timeline
 * Rollout staffing
+
+Summary cells are written as live Excel formulas (e.g. `SUMIFS` against the
+Resource Plan sheet's Person/Team/Role/month columns), not static computed
+values, so the Summary recalculates automatically if a user edits the
+Resource Plan sheet directly in Excel.
 
 Use normal Excel techniques where practical.
 

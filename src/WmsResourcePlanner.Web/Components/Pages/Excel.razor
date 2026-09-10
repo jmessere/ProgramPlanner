@@ -37,6 +37,10 @@ Templates named in the sheet that don't already exist are resolved/created autom
 {
     <p class="save-status" style="color:#b32121">@_parseError</p>
 }
+@if (_templatePlanParseError is not null)
+{
+    <p class="save-status" style="color:#b32121">@_templatePlanParseError</p>
+}
 
 @if (_preview.Count > 0)
 {
@@ -94,6 +98,32 @@ Templates named in the sheet that don't already exist are resolved/created autom
     </div>
 }
 
+@if (_templatePlanRows.Count > 0)
+{
+    <h3 style="margin-top:1rem">Template Plan changes (@_templatePlanRows.Count row(s): @_templatePlanRows.Count(r => r.Errors.Count == 0) valid, @_templatePlanRows.Count(r => r.Errors.Count > 0) with errors)</h3>
+    <div class="grid-scroll">
+        <table class="data-grid">
+            <thead>
+                <tr><th>Row</th><th>Template</th><th>Phase</th><th>Start Date</th><th>End Date</th><th>Notes</th><th>Errors</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var p in _templatePlanRows)
+                {
+                    <tr style="@(p.Errors.Count > 0 ? "background:#fde8e8" : "")">
+                        <td>@p.RowNumber</td>
+                        <td>@p.TemplateName</td>
+                        <td>@p.PhaseName</td>
+                        <td>@(p.StartDate?.ToString("MMM yyyy"))</td>
+                        <td>@(p.EndDate?.ToString("MMM yyyy"))</td>
+                        <td>@p.Notes</td>
+                        <td style="color:#b32121">@string.Join("; ", p.Errors)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
 @code {
     private List<PlanningScenario> _scenarios = new();
     private int _scenarioId;
@@ -107,6 +137,8 @@ Templates named in the sheet that don't already exist are resolved/created autom
     private string _commitStatus = string.Empty;
     private List<ImportRow> _parsedRows = new();
     private List<ImportPreviewItem> _preview = new();
+    private List<TemplatePlanImportRow> _templatePlanRows = new();
+    private string? _templatePlanParseError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -131,8 +163,10 @@ Templates named in the sheet that don't already exist are resolved/created autom
     private async Task OnFileSelectedAsync(InputFileChangeEventArgs e)
     {
         _parseError = null;
+        _templatePlanParseError = null;
         _preview.Clear();
         _parsedRows.Clear();
+        _templatePlanRows.Clear();
         _commitStatus = string.Empty;
 
         try
@@ -149,14 +183,35 @@ Templates named in the sheet that don't already exist are resolved/created autom
         {
             _parseError = $"Could not read workbook: {ex.Message}";
         }
+
+        try
+        {
+            await using var stream = e.File.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            ms.Position = 0;
+
+            // Template Plan is optional - a workbook without that sheet is
+            // still a valid Resource-Plan-only import.
+            _templatePlanRows = WmsResourcePlanner.Infrastructure.Excel.ExcelImportParser.ParseTemplatePlanSheet(ms);
+        }
+        catch (Exception ex)
+        {
+            _templatePlanParseError = $"Could not read \"Template Plan\" sheet: {ex.Message}";
+        }
     }
 
     private async Task CommitAsync()
     {
         _committing = true;
         var count = await ImportService.CommitAsync(_programId, _importScenarioId, _parsedRows);
+        var templatePlanCount = _templatePlanRows.Count > 0
+            ? await ImportService.CommitTemplatePlanAsync(_programId, _templatePlanRows)
+            : 0;
         _committing = false;
-        _commitStatus = $"Imported {count} row(s) into scenario at {DateTime.Now:T}.";
+        _commitStatus = templatePlanCount > 0
+            ? $"Imported {count} resource plan row(s) and {templatePlanCount} template phase(s) at {DateTime.Now:T}."
+            : $"Imported {count} row(s) into scenario at {DateTime.Now:T}.";
 
         // Refresh preview flags (entities just created are no longer "new").
         _preview = await ImportService.PreviewAsync(_programId, _parsedRows);

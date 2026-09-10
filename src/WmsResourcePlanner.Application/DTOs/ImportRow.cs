@@ -47,3 +47,24 @@ public class ImportPreviewItem
     public List<string> Errors { get; set; } = new();
     public bool HasErrors => Errors.Count > 0;
 }
+
+/// <summary>
+/// A single parsed row from the "Template Plan" sheet of an uploaded
+/// workbook: one row per Template Phase. StartDate/EndDate are derived
+/// from whichever months carry an "X" mark in the sheet's monthly timeline
+/// columns when any are present (so adding/removing an "X" and
+/// re-importing adjusts the phase's dates); if no "X" marks are present
+/// the row's Start Date/End Date cell values are used instead, so a
+/// brand-new phase can still be typed in without needing to fill in the
+/// monthly grid by hand.
+/// </summary>
+public class TemplatePlanImportRow
+{
+    public int RowNumber { get; set; }
+    public string TemplateName { get; set; } = string.Empty;
+    public string PhaseName { get; set; } = string.Empty;
+    public DateOnly? StartDate { get; set; }
+    public DateOnly? EndDate { get; set; }
+    public string? Notes { get; set; }
+    public List<string> Errors { get; set; } = new();
+}

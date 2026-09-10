@@ -76,6 +76,66 @@ public class ExcelImportServiceTests
     }
 
     [Fact]
+    public async Task ParseTemplatePlanSheet_And_CommitTemplatePlanAsync_AdjustsPhaseDatesFromXMarks()
+    {
+        using var db = TestDbFactory.Create();
+
+        var program = new Program { Name = "P" };
+        db.Programs.Add(program);
+        await db.SaveChangesAsync();
+
+        var scenario = new PlanningScenario { ProgramId = program.Id, Name = "Baseline", IsBaseline = true };
+        db.PlanningScenarios.Add(scenario);
+        var template = new Template { ProgramId = program.Id, Name = "Std Rollout", Status = TemplateStatus.Active };
+        db.Templates.Add(template);
+        await db.SaveChangesAsync();
+        var phase = new TemplatePhase
+        {
+            TemplateId = template.Id, Name = "Design", SortOrder = 1,
+            StartDate = new DateOnly(2027, 2, 1), EndDate = new DateOnly(2027, 4, 30)
+        };
+        db.TemplatePhases.Add(phase);
+        await db.SaveChangesAsync();
+
+        var exportService = new ExcelExportService(db, new ResourceTransformationService());
+        var bytes = await exportService.ExportAsync(scenario.Id, new DateOnly(2027, 1, 1), new DateOnly(2027, 12, 31));
+
+        // Simulate the user editing the workbook: remove the "X" from April
+        // and add one for May, i.e. shift the phase's end date out a month.
+        using (var editStream = new MemoryStream(bytes))
+        using (var wb = new ClosedXML.Excel.XLWorkbook(editStream))
+        {
+            var ws = wb.Worksheet("Template Plan");
+            Assert.Equal("X", ws.Cell(2, 9).GetString()); // Apr 2027
+            ws.Cell(2, 9).Value = string.Empty;
+            ws.Cell(2, 10).Value = "X"; // May 2027
+            using var savedStream = new MemoryStream();
+            wb.SaveAs(savedStream);
+            bytes = savedStream.ToArray();
+        }
+
+        using var ms = new MemoryStream(bytes);
+        var parsedRows = ExcelImportParser.ParseTemplatePlanSheet(ms);
+        Assert.Single(parsedRows);
+        Assert.Empty(parsedRows[0].Errors);
+        Assert.Equal(new DateOnly(2027, 2, 1), parsedRows[0].StartDate);
+        Assert.Equal(new DateOnly(2027, 5, 31), parsedRows[0].EndDate);
+
+        var lookup = new LookupService(db);
+        var importService = new ImportService(db, lookup, new ResourceTransformationService());
+        var count = await importService.CommitTemplatePlanAsync(program.Id, parsedRows);
+        Assert.Equal(1, count);
+
+        var updated = db.TemplatePhases.Single(p => p.Id == phase.Id);
+        Assert.Equal(new DateOnly(2027, 2, 1), updated.StartDate);
+        Assert.Equal(new DateOnly(2027, 5, 31), updated.EndDate);
+
+        // No duplicate Template/Phase created.
+        Assert.Single(db.Templates.ToList());
+        Assert.Single(db.TemplatePhases.ToList());
+    }
+
+    [Fact]
     public async Task Commit_NewTeamAndPerson_CreatesEntitiesAndOpenOrFilledAllocation()
     {
         // Mirrors SPEC.md Acceptance Scenario I: a workbook user adds a brand new
