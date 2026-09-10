@@ -30,7 +30,9 @@ public class ValidationService
 
         var lines = await _db.ResourcePlanLines
             .Where(r => r.ScenarioId == scenarioId)
-            .Include(r => r.Person)
+            .Include(r => r.Person).ThenInclude(p => p!.PrimaryRole)
+            .Include(r => r.Team)
+            .Include(r => r.Role)
             .Include(r => r.TeamTemplateAssignment)
             .Include(r => r.TemplatePhase)
             .ToListAsync(ct);
@@ -88,6 +90,25 @@ public class ValidationService
                         warnings.Add(new GridWarning(key, year, month,
                             $"Allocation falls outside phase \"{phase.Name}\" ({phase.StartDate:MMM yyyy}-{phase.EndDate:MMM yyyy})."));
                     }
+                }
+
+                if (line.Team is { StartDate: not null } or { EndDate: not null })
+                {
+                    var monthStart = new DateOnly(year, month, 1);
+                    var monthEnd = monthStart.AddMonths(1).AddDays(-1);
+                    if ((line.Team!.StartDate is { } teamStart && monthEnd < teamStart)
+                        || (line.Team!.EndDate is { } teamEnd && monthStart > teamEnd))
+                    {
+                        warnings.Add(new GridWarning(key, year, month,
+                            $"This assignment extends beyond {line.Team!.Name}'s planned period."));
+                    }
+                }
+
+                if (line.PersonId is not null && line.Person?.PrimaryRoleId is not null
+                    && line.Person.PrimaryRoleId != line.RoleId)
+                {
+                    warnings.Add(new GridWarning(key, year, month,
+                        $"{line.Person.DisplayName}'s primary role is {line.Person.PrimaryRole?.Name ?? "different"}; this assignment uses {line.Role?.Name}."));
                 }
             }
         }

@@ -68,4 +68,50 @@ public class ValidationServiceTests
         // (only the 1.0 FTE Inbound line is active - the Integration line starts in April) -> no warnings.
         Assert.DoesNotContain(warnings, w => w.Year == 2027 && w.Month == 3);
     }
+
+    [Fact]
+    public async Task GetWarningsAsync_FlagsRoleMismatchAndTeamDateBounds()
+    {
+        using var db = TestDbFactory.Create();
+
+        var program = new Program { Name = "P" };
+        db.Programs.Add(program);
+        await db.SaveChangesAsync();
+
+        var scenario = new PlanningScenario { ProgramId = program.Id, Name = "Baseline" };
+        var ba = new Role { ProgramId = program.Id, Name = "BA" };
+        var dev = new Role { ProgramId = program.Id, Name = "Developer" };
+        var team = new Team
+        {
+            ProgramId = program.Id, Name = "Inbound", TeamType = "Template Build",
+            StartDate = new DateOnly(2027, 3, 1), EndDate = new DateOnly(2027, 12, 31)
+        };
+        db.PlanningScenarios.Add(scenario);
+        db.Roles.AddRange(ba, dev);
+        db.Teams.Add(team);
+        await db.SaveChangesAsync();
+
+        var jane = new Person
+        {
+            ProgramId = program.Id, FirstName = "Jane", LastName = "Smith", DisplayName = "Jane Smith",
+            DefaultCapacityFte = 1.0m, PrimaryRoleId = ba.Id
+        };
+        db.People.Add(jane);
+        await db.SaveChangesAsync();
+
+        // Jane's primary role is BA but this line uses Developer, and the team's planned
+        // period starts in March while the line starts in January.
+        db.ResourcePlanLines.Add(new ResourcePlanLine
+        {
+            ProgramId = program.Id, ScenarioId = scenario.Id, TeamId = team.Id, RoleId = dev.Id, PersonId = jane.Id,
+            StartDate = new DateOnly(2027, 1, 1), EndDate = new DateOnly(2027, 6, 30), Fte = 1.0m
+        });
+        await db.SaveChangesAsync();
+
+        var sut = new ValidationService(db, new CapacityService(db, new ResourceTransformationService()));
+        var warnings = await sut.GetWarningsAsync(scenario.Id, new DateOnly(2027, 1, 1), new DateOnly(2027, 12, 31));
+
+        Assert.Contains(warnings, w => w.Message.Contains("primary role is BA") && w.Message.Contains("Developer"));
+        Assert.Contains(warnings, w => w.Year == 2027 && w.Month == 1 && w.Message.Contains("planned period"));
+    }
 }
