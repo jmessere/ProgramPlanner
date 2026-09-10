@@ -9,6 +9,13 @@ public class GanttBar
 {
     public int Id { get; set; }
     public string GroupLabel { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Optional second-level grouping label, nested under GroupLabel (e.g.
+    /// group by Template, then by Team within each template). Null/empty
+    /// means no second-level grouping is active for this bar.
+    /// </summary>
+    public string? SubGroupLabel { get; set; }
     public string BarLabel { get; set; } = string.Empty;
     public string? SubLabel { get; set; }
     public DateOnly StartDate { get; set; }

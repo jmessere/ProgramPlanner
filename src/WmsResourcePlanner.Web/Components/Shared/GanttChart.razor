@@ -13,28 +13,38 @@
                 }
             </div>
         </div>
-        @foreach (var group in Groups())
+        @foreach (var group in GroupedRows())
         {
-            var laned = AssignLanes(group);
-            var laneCount = laned.Count == 0 ? 1 : laned.Max(x => x.Lane) + 1;
-            var trackHeight = RowVerticalPadding + laneCount * LaneHeight;
-            <div class="gantt-row">
-                <div class="gantt-row-label" title="@group.Key">@group.Key</div>
-                <div class="gantt-row-track" style="width:@(TotalWidthPx)px;height:@(trackHeight)px">
-                    @foreach (var (bar, lane) in laned)
-                    {
-                        var left = DaysFromStart(bar.StartDate) * PxPerDay;
-                        var width = Math.Max(8, (DaysFromStart(bar.EndDate) - DaysFromStart(bar.StartDate) + 1) * PxPerDay);
-                        var top = RowVerticalPadding + lane * LaneHeight;
-                        <div class="gantt-bar @(bar.Color ?? "filled")" data-id="@bar.Id"
-                             style="left:@(left)px;width:@(width)px;top:@(top)px"
-                             title="@bar.BarLabel (@bar.StartDate.ToString("MMM yyyy") - @bar.EndDate.ToString("MMM yyyy"))">
-                            <span style="pointer-events:none">@bar.BarLabel@(string.IsNullOrEmpty(bar.SubLabel) ? "" : $" · {bar.SubLabel}")</span>
-                            <div class="resize-handle"></div>
-                        </div>
-                    }
+            @if (HasSubGrouping)
+            {
+                <div class="gantt-row gantt-group-header">
+                    <div class="gantt-row-label" title="@group.PrimaryLabel">@group.PrimaryLabel</div>
+                    <div class="gantt-row-track" style="width:@(TotalWidthPx)px"></div>
                 </div>
-            </div>
+            }
+            @foreach (var row in group.Rows)
+            {
+                var laned = AssignLanes(row.Bars);
+                var laneCount = laned.Count == 0 ? 1 : laned.Max(x => x.Lane) + 1;
+                var trackHeight = RowVerticalPadding + laneCount * LaneHeight;
+                <div class="gantt-row">
+                    <div class="gantt-row-label @(HasSubGrouping ? "gantt-row-label-sub" : "")" title="@row.RowLabel">@row.RowLabel</div>
+                    <div class="gantt-row-track" style="width:@(TotalWidthPx)px;height:@(trackHeight)px">
+                        @foreach (var (bar, lane) in laned)
+                        {
+                            var left = DaysFromStart(bar.StartDate) * PxPerDay;
+                            var width = Math.Max(8, (DaysFromStart(bar.EndDate) - DaysFromStart(bar.StartDate) + 1) * PxPerDay);
+                            var top = RowVerticalPadding + lane * LaneHeight;
+                            <div class="gantt-bar @(bar.Color ?? "filled")" data-id="@bar.Id"
+                                 style="left:@(left)px;width:@(width)px;top:@(top)px"
+                                 title="@bar.BarLabel (@bar.StartDate.ToString("MMM yyyy") - @bar.EndDate.ToString("MMM yyyy"))">
+                                <span style="pointer-events:none">@bar.BarLabel@(string.IsNullOrEmpty(bar.SubLabel) ? "" : $" · {bar.SubLabel}")</span>
+                                <div class="resize-handle"></div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
         }
     </div>
 </div>
@@ -69,8 +79,36 @@
         }
     }
 
-    private IEnumerable<IGrouping<string, GanttBar>> Groups()
-        => Bars.GroupBy(b => b.GroupLabel);
+    private bool HasSubGrouping => Bars.Any(b => !string.IsNullOrEmpty(b.SubGroupLabel));
+
+    /// <summary>
+    /// Groups bars by their primary GroupLabel and, when any bar carries a
+    /// SubGroupLabel (second-level "then by" grouping), further splits each
+    /// primary group into nested sub-rows keyed by that sub-label. When no
+    /// second-level grouping is active, each primary group is a single row
+    /// (identical to the previous flat behaviour).
+    /// </summary>
+    private List<(string PrimaryLabel, List<(string RowLabel, List<GanttBar> Bars)> Rows)> GroupedRows()
+    {
+        var subGrouping = HasSubGrouping;
+        var result = new List<(string, List<(string, List<GanttBar>)>)>();
+        foreach (var g in Bars.GroupBy(b => b.GroupLabel).OrderBy(g => g.Key))
+        {
+            if (subGrouping)
+            {
+                var subRows = g.GroupBy(b => b.SubGroupLabel ?? "(none)")
+                    .OrderBy(sg => sg.Key)
+                    .Select(sg => (RowLabel: sg.Key, Bars: sg.ToList()))
+                    .ToList();
+                result.Add((g.Key, subRows));
+            }
+            else
+            {
+                result.Add((g.Key, new List<(string, List<GanttBar>)> { (g.Key, g.ToList()) }));
+            }
+        }
+        return result;
+    }
 
     private static List<(GanttBar Bar, int Lane)> AssignLanes(IEnumerable<GanttBar> bars)
     {

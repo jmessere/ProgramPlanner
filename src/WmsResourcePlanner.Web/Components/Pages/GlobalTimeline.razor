@@ -36,6 +36,17 @@ else
                 <option value="Person">Person</option>
             </select>
         </label>
+        <label>Then by:
+            <select @bind="FilterState.GroupBy2">
+                <option value="None">(none)</option>
+                <option value="Template">Template</option>
+                <option value="Phase">Template Phase</option>
+                <option value="Workstream">Workstream</option>
+                <option value="Team">Team</option>
+                <option value="Role">Role</option>
+                <option value="Person">Person</option>
+            </select>
+        </label>
         <label>Template: <input @bind="FilterState.TemplateFilter" @bind:event="oninput" placeholder="contains..." style="width:110px" /></label>
         <label>Workstream: <input @bind="FilterState.WorkstreamFilter" @bind:event="oninput" placeholder="contains..." style="width:110px" /></label>
         <label>Team: <input @bind="FilterState.TeamFilter" @bind:event="oninput" placeholder="contains..." style="width:110px" /></label>
@@ -106,7 +117,8 @@ else
         return query.Select(l => new GanttBar
         {
             Id = l.Id,
-            GroupLabel = GroupLabelFor(l),
+            GroupLabel = GroupLabelFor(FilterState.GroupBy, l),
+            SubGroupLabel = FilterState.GroupBy2 == "None" ? null : GroupLabelFor(FilterState.GroupBy2, l),
             BarLabel = $"{l.TeamName} · {l.RoleName} · {l.Fte:0.##} FTE",
             SubLabel = l.PersonName,
             StartDate = l.StartDate,
@@ -115,7 +127,7 @@ else
         }).ToList();
     }
 
-    private string GroupLabelFor(TimelineLine l) => FilterState.GroupBy switch
+    private string GroupLabelFor(string groupBy, TimelineLine l) => groupBy switch
     {
         "Template" => l.TemplateName ?? "(no template)",
         "Phase" => l.PhaseName ?? "(no phase)",

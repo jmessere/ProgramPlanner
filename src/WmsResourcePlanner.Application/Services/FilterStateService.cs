@@ -12,6 +12,12 @@ public class FilterStateService
 {
     public int? ScenarioId { get; set; }
     public string GroupBy { get; set; } = "Template";
+
+    /// <summary>
+    /// Optional second-level grouping applied within each primary group
+    /// (e.g. group by Template, then by Team). "None" disables it.
+    /// </summary>
+    public string GroupBy2 { get; set; } = "None";
     public string TemplateFilter { get; set; } = string.Empty;
     public string WorkstreamFilter { get; set; } = string.Empty;
     public string TeamFilter { get; set; } = string.Empty;
