@@ -28,6 +28,7 @@ builder.Services.AddScoped<ValidationService>();
 builder.Services.AddScoped<ImportService>();
 builder.Services.AddScoped<UndoService>();
 builder.Services.AddScoped<AuditService>();
+builder.Services.AddScoped<FilterStateService>();
 builder.Services.AddSingleton<WmsResourcePlanner.Infrastructure.Data.BackupService>();
 builder.Services.AddScoped<WmsResourcePlanner.Infrastructure.Excel.ExcelExportService>();
 
