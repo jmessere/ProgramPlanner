@@ -78,24 +78,37 @@ dotnet test
 ```text
 src/
     WmsResourcePlanner.Domain/          Entities (Program, Template, Team,
-                                         ResourcePlanLine, ...)
+                                         ResourcePlanLine, AuditEntry, ...)
     WmsResourcePlanner.Application/     Services, DTOs, calculations
                                          (transformation engine, capacity,
-                                         gap analysis, lookups, scenarios)
+                                         rollout capacity, gap analysis,
+                                         validation, gantt, undo, audit,
+                                         lookups/search, import, scenarios)
     WmsResourcePlanner.Infrastructure/  EF Core DbContext, migrations, seed
-                                         data, Excel export (ClosedXML)
+                                         data, Excel export/import
+                                         (ClosedXML), SQLite backup service
     WmsResourcePlanner.Web/             Blazor Web App (Server interactivity)
 tests/
     WmsResourcePlanner.Tests/           xUnit tests (transformation engine,
-                                         capacity, gap analysis, Team↔Template
-                                         relationship, Excel export, scenarios)
+                                         capacity, rollout capacity, gap
+                                         analysis, Team↔Template
+                                         relationship, Excel export/import,
+                                         validation warnings, undo,
+                                         scenarios)
 ```
 
 ## Current functionality
 
 See `/docs/implementation-status.md` for a full, current accounting of what
-is implemented, what remains, and known issues. In summary, master data
-management, the monthly Resource Plan grid, capacity/gap reporting, Excel
-export, and scenario duplication are implemented and tested end-to-end.
-Gantt/timeline drag-and-drop editing, Excel import, and undo are not yet
-implemented.
+is implemented, what remains, and known issues, and
+`/docs/acceptance-results.md` for the Definition-of-Done / Critical
+Acceptance Scenario assessment. In summary: master data management
+(including Person Detail and Global Search), the monthly Resource Plan grid
+with inline validation warnings, Template/Team-Template/Resource Gantt
+views with drag/resize and Ctrl+Z undo, a Global Timeline, Excel
+export/import (with preview), capacity/gap/rollout-capacity reporting,
+scenario duplication, audit history, and SQLite backup/restore are all
+implemented and tested end-to-end. Remaining known gaps (filter
+persistence across sessions, undo for entity creation/deletion, a combined
+Filled/Open/Total report view) are documented in
+`/docs/acceptance-results.md`.

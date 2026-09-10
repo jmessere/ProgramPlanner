@@ -95,12 +95,85 @@ etc.) is shared/referenced, never duplicated, per SPEC.md's model that
 scenarios are alternate resource-plan views over the same organizational
 structure.
 
-## Scope not completed this session
+## Scope evolution across the full build
 
-Given the size of SPEC.md and the priority order in the build instructions
-(functional depth over broad, shallow coverage), the following were
-deliberately left unimplemented rather than stubbed or faked: Template/Team-
-Template/Resource Gantt views (drag/resize), Excel import, inline validation
-warnings, a dedicated combined Filled/Open/Total report, a grid/report
-filter bar, global timeline, and undo. These are recorded honestly as FAIL/
-PARTIAL in `/docs/acceptance-results.md` rather than represented as done.
+The initial session (recorded above) deliberately deferred Gantt views,
+Excel import, inline validation, a combined Filled/Open/Total report, a
+filter bar, global timeline, and undo. All of these except the combined
+Filled/Open/Total report and the filter bar were subsequently implemented
+in later phases of the same overall build effort (see below). The
+"Scope not completed this session" note above is kept for historical
+accuracy about the first session; current gaps are tracked in
+`/docs/acceptance-results.md` "Known, Documented Gaps".
+
+## Gantt views: shared component + generic JS interop
+
+All three Gantt-style pages (`/gantt/templates`, `/gantt/teams`,
+`/gantt/resources`) plus the read-only Global Timeline share one
+`GanttChart.razor` component and one JS module (`wwwroot/js/gantt.js`,
+`window.wmsGantt`). The JS module binds `mousedown`/`mousemove`/`mouseup` at
+the container level (event delegation on `.gantt-bar` elements) rather than
+per-bar, and calls back into Blazor via `[JSInvokable] HandleBarChanged(id,
+leftPx, widthPx)`, converting pixels to `DateOnly` via `PxPerDay` and
+`HorizonStart`. This keeps drag/resize logic in one place instead of
+duplicating it three times. A `[JSInvokable]` method cannot share a name
+with an `EventCallback` parameter on the same component (C# member-name
+collision), so the JS-invokable methods are named `HandleBarChanged`/
+`HandleUndoAsync` rather than matching their `On...` parameter names.
+
+## Undo: single shared stack, scoped lifetime
+
+`UndoService` is registered `Scoped` (per Blazor circuit) with a single
+in-memory stack (`(description, Func<Task> undo)`, max depth 25) shared
+across the Resource Plan grid and all three Gantt/timeline mutation
+services, rather than per-feature stacks. This satisfies SPEC section 55's
+minimum bar (grid changes, timeline moves, timeline resizing) with much
+less code than per-feature undo, at the cost of not covering entity
+creation/deletion (see gaps doc). Ctrl+Z is wired via a single global
+`keydown` listener (`window.wmsUndo`) that always retargets its
+`DotNetObjectReference` to the currently-rendered `<UndoBar>` instance, so
+the shortcut keeps working correctly as the user navigates between pages.
+
+## Excel import: layering mirrors export
+
+`ExcelImportParser` lives in `Infrastructure.Excel` (ClosedXML dependency,
+no DB access) and only produces plain `ImportRow` DTOs. `ImportService`
+lives in `Application.Services`, has no ClosedXML dependency, and consumes
+those DTOs - preserving the same Application-does-not-depend-on-
+Infrastructure boundary used everywhere else. Import is two-phase:
+`PreviewAsync` (read-only, flags new Team/Person/Role/Workstream/Template
+without writing) then `CommitAsync` (resolves/creates master data via
+`LookupService`, finds-or-creates a covering `TeamTemplateAssignment`, then
+replaces `ResourcePlanLine`s for each row's context using the same
+transformation engine used by the grid).
+
+## Audit History: lightweight, generic entry shape
+
+`AuditEntry` (SPEC section 94) is a single flat table (EntityType,
+EntityId, ChangeType, ChangedUtc, OldValue, NewValue as JSON-serialized
+snapshots) rather than per-entity audit tables, so one `AuditService`
+handles all four required change sources: resource plan line edits, team-
+template date changes, template phase date changes, and team-scoped
+resource-line date changes. It is recorded alongside (not instead of) the
+Undo stack - the two features are independent (Undo needs a live delegate;
+Audit needs a permanent record).
+
+## Backup: SQLite online backup API, not raw file copy
+
+`BackupService` uses `SqliteConnection.BackupDatabase()` (SQLite's built-in
+"Backup API") rather than `File.Copy` on the `.db` file, so backups are
+consistent even if the app's own connection pool has open connections at
+backup time. Backups are stored as timestamped files under an
+`App_Data/Backups` folder alongside the live database. Restore uses the
+same API in reverse and requires an explicit JS `confirm()` prompt before
+proceeding (SPEC section 95: "Restore requires confirmation").
+
+## Global Search: dedicated interactive island in an otherwise-static layout
+
+`GlobalSearch.razor` is the only interactive component embedded directly in
+`MainLayout.razor` (`@rendermode InteractiveServer` on the component
+itself), while `MainLayout` and most list pages remain static SSR except
+where they already needed interactivity (grids, detail pages). This lets
+the search box work on every page without making the entire layout
+interactive.
+
