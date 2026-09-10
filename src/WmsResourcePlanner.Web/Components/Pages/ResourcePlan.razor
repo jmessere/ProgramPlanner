@@ -46,7 +46,7 @@ else
         <span>Showing @FilteredRows().Count of @_rows.Count row(s).</span>
     </div>
 
-    <div class="grid-scroll" id="@_gridContainerId" data-month-cols="@_monthHeaders.Count">
+    <div class="grid-scroll" id="@_gridContainerId" data-row-cols="@(FrozenColumnCount + _monthHeaders.Count)">
         <table class="data-grid frozen-grid" style="width:@(TotalGridWidth)px">
             <thead>
                 <tr style="height:@(HeaderRowHeight)px">
@@ -91,7 +91,7 @@ else
                 {
                     <tr>
                         <td class="frozen-col" style="left:@(TeamLeft)px;width:@(TeamColWidth)px">
-                            <select value="@row.Key.TeamId" @onchange="e => OnRowTeamChangedAsync(row, e)">
+                            <select class="grid-nav-cell" value="@row.Key.TeamId" @onchange="e => OnRowTeamChangedAsync(row, e)">
                                 @foreach (var t in _teams) { <option value="@t.Id">@t.Name</option> }
                                 <option value="__new__">+ Add new...</option>
                             </select>
@@ -99,7 +99,7 @@ else
                         @if (_showTemplateColumn)
                         {
                             <td class="frozen-col" style="left:@(TemplateLeft)px;width:@(TemplateColWidth)px">
-                                <select value="@(row.Key.TeamTemplateAssignmentId?.ToString() ?? "")" @onchange="e => OnRowAssignmentChangedAsync(row, e)">
+                                <select class="grid-nav-cell" value="@(row.Key.TeamTemplateAssignmentId?.ToString() ?? "")" @onchange="e => OnRowAssignmentChangedAsync(row, e)">
                                     <option value="">(none)</option>
                                     @foreach (var a in AssignmentsForTeam(row.Key.TeamId)) { <option value="@a.Id">@a.Template?.Name</option> }
                                 </select>
@@ -108,7 +108,7 @@ else
                         @if (_showWorkstreamColumn)
                         {
                             <td class="frozen-col" style="left:@(WorkstreamLeft)px;width:@(WorkstreamColWidth)px">
-                                <select value="@(row.Key.WorkstreamId?.ToString() ?? "")" @onchange="e => OnRowWorkstreamChangedAsync(row, e)">
+                                <select class="grid-nav-cell" value="@(row.Key.WorkstreamId?.ToString() ?? "")" @onchange="e => OnRowWorkstreamChangedAsync(row, e)">
                                     <option value="">(none)</option>
                                     @foreach (var w in _workstreams) { <option value="@w.Id">@w.Name</option> }
                                     <option value="__new__">+ Add new...</option>
@@ -116,13 +116,13 @@ else
                             </td>
                         }
                         <td class="frozen-col" style="left:@(RoleLeft)px;width:@(RoleColWidth)px">
-                            <select value="@row.Key.RoleId" @onchange="e => OnRowRoleChangedAsync(row, e)">
+                            <select class="grid-nav-cell" value="@row.Key.RoleId" @onchange="e => OnRowRoleChangedAsync(row, e)">
                                 @foreach (var r in _roles) { <option value="@r.Id">@r.Name</option> }
                                 <option value="__new__">+ Add new...</option>
                             </select>
                         </td>
                         <td class="frozen-col frozen-col-last" style="left:@(PersonLeft)px;width:@(PersonColWidth)px">
-                            <select value="@(row.Key.PersonId?.ToString() ?? "")" @onchange="e => OnRowPersonChangedAsync(row, e)">
+                            <select class="grid-nav-cell" value="@(row.Key.PersonId?.ToString() ?? "")" @onchange="e => OnRowPersonChangedAsync(row, e)">
                                 <option value="">(open demand)</option>
                                 @foreach (var p in _people) { <option value="@p.Id">@p.DisplayName</option> }
                                 <option value="__new__">+ Add new...</option>
@@ -141,7 +141,7 @@ else
                 }
                 <tr class="new-row">
                     <td class="frozen-col" style="left:@(TeamLeft)px;width:@(TeamColWidth)px">
-                        <select value="@(_newTeamId?.ToString() ?? "")" @onchange="OnNewTeamChangedAsync">
+                        <select class="grid-nav-cell" value="@(_newTeamId?.ToString() ?? "")" @onchange="OnNewTeamChangedAsync">
                             <option value="">Team...</option>
                             @foreach (var t in _teams) { <option value="@t.Id">@t.Name</option> }
                             <option value="__new__">+ Add new...</option>
@@ -150,7 +150,7 @@ else
                     @if (_showTemplateColumn)
                     {
                         <td class="frozen-col" style="left:@(TemplateLeft)px;width:@(TemplateColWidth)px">
-                            <select @bind="_newAssignmentId">
+                            <select class="grid-nav-cell" @bind="_newAssignmentId">
                                 <option value="">(none)</option>
                                 @foreach (var a in AssignmentsForTeam(_newTeamId)) { <option value="@a.Id">@a.Template?.Name</option> }
                             </select>
@@ -159,7 +159,7 @@ else
                     @if (_showWorkstreamColumn)
                     {
                         <td class="frozen-col" style="left:@(WorkstreamLeft)px;width:@(WorkstreamColWidth)px">
-                            <select value="@(_newWorkstreamId?.ToString() ?? "")" @onchange="OnNewWorkstreamChangedAsync">
+                            <select class="grid-nav-cell" value="@(_newWorkstreamId?.ToString() ?? "")" @onchange="OnNewWorkstreamChangedAsync">
                                 <option value="">(none)</option>
                                 @foreach (var w in _workstreams) { <option value="@w.Id">@w.Name</option> }
                                 <option value="__new__">+ Add new...</option>
@@ -167,14 +167,14 @@ else
                         </td>
                     }
                     <td class="frozen-col" style="left:@(RoleLeft)px;width:@(RoleColWidth)px">
-                        <select value="@(_newRoleId?.ToString() ?? "")" @onchange="OnNewRoleChangedAsync">
+                        <select class="grid-nav-cell" value="@(_newRoleId?.ToString() ?? "")" @onchange="OnNewRoleChangedAsync">
                             <option value="">Role...</option>
                             @foreach (var r in _roles) { <option value="@r.Id">@r.Name</option> }
                             <option value="__new__">+ Add new...</option>
                         </select>
                     </td>
                     <td class="frozen-col frozen-col-last" style="left:@(PersonLeft)px;width:@(PersonColWidth)px">
-                        <select value="@(_newPersonId?.ToString() ?? "")" @onchange="OnNewPersonChangedAsync">
+                        <select class="grid-nav-cell" value="@(_newPersonId?.ToString() ?? "")" @onchange="OnNewPersonChangedAsync">
                             <option value="">(open demand)</option>
                             @foreach (var p in _people) { <option value="@p.Id">@p.DisplayName</option> }
                             <option value="__new__">+ Add new...</option>

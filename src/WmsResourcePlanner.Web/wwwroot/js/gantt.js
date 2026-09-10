@@ -1,26 +1,44 @@
 window.wmsGridNav = {
+    // Every navigable cell in the grid - the frozen Team/Template/Workstream/
+    // Role/Person <select> dropdowns as well as the scrolling month
+    // input.fte-input cells - is treated as one flat, row-major list so
+    // arrow keys move seamlessly across both frozen and scrolling columns.
+    NAV_SELECTOR: "select.grid-nav-cell, input.fte-input",
+
     init: function (containerId) {
         const container = document.getElementById(containerId);
         if (!container || container.dataset.wmsGridNavBound === "1") return;
         container.dataset.wmsGridNavBound = "1";
+        const NAV_SELECTOR = window.wmsGridNav.NAV_SELECTOR;
 
         container.addEventListener("keydown", function (e) {
-            const input = e.target.closest("input.fte-input");
-            if (!input) return;
+            const cell = e.target.closest(NAV_SELECTOR);
+            if (!cell) return;
 
-            const inputs = Array.from(container.querySelectorAll("input.fte-input"));
-            const idx = inputs.indexOf(input);
+            const cells = Array.from(container.querySelectorAll(NAV_SELECTOR));
+            const idx = cells.indexOf(cell);
             if (idx === -1) return;
 
-            const cols = parseInt(container.dataset.monthCols, 10) || 1;
+            // Each logical grid row (existing rows and the always-present
+            // new-row) has the same number of nav cells: the visible frozen
+            // columns plus one cell per month, so a single row-length lets
+            // Up/Down jump to the same column in the row above/below.
+            const cols = parseInt(container.dataset.rowCols, 10) || 1;
             let target = -1;
 
+            // input[type=number] does not reliably support selectionStart/
+            // selectionEnd across browsers (it's often null or throws), so
+            // boundary-aware cursor movement isn't feasible here - Left/Right
+            // always jump to the neighboring cell, same as Up/Down/Enter.
+            // For <select> cells, ArrowUp/ArrowDown would otherwise change
+            // the selected option natively - preventDefault below overrides
+            // that so all cell types behave consistently as a grid.
             switch (e.key) {
                 case "ArrowRight":
-                    if (input.selectionStart === input.value.length) target = idx + 1;
+                    target = idx + 1;
                     break;
                 case "ArrowLeft":
-                    if (input.selectionStart === 0) target = idx - 1;
+                    target = idx - 1;
                     break;
                 case "ArrowDown":
                     target = idx + cols;
@@ -35,10 +53,13 @@ window.wmsGridNav = {
                     return;
             }
 
-            if (target >= 0 && target < inputs.length) {
+            if (target >= 0 && target < cells.length) {
                 e.preventDefault();
-                inputs[target].focus();
-                inputs[target].select();
+                const next = cells[target];
+                next.focus();
+                if (typeof next.select === "function" && next.tagName === "INPUT") {
+                    next.select();
+                }
             }
         });
     }
