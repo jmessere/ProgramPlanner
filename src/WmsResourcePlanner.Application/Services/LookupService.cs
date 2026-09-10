@@ -140,4 +140,36 @@ public class LookupService
         await _db.SaveChangesAsync(ct);
         return created;
     }
+
+    /// <summary>
+    /// Global search across People, Teams, Templates, Workstreams, Roles,
+    /// and Sites (SPEC.md section 56). Case-insensitive "contains" match.
+    /// </summary>
+    public async Task<List<SearchResult>> SearchAllAsync(int programId, string term, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(term) || term.Trim().Length < 2)
+        {
+            return new List<SearchResult>();
+        }
+
+        var t = term.Trim().ToLower();
+        var results = new List<SearchResult>();
+
+        results.AddRange((await _db.People.Where(p => p.ProgramId == programId && p.DisplayName.ToLower().Contains(t)).Take(10).ToListAsync(ct))
+            .Select(p => new SearchResult("Person", p.DisplayName, "/people")));
+        results.AddRange((await _db.Teams.Where(x => x.ProgramId == programId && x.Name.ToLower().Contains(t)).Take(10).ToListAsync(ct))
+            .Select(x => new SearchResult("Team", x.Name, $"/teams/{x.Id}")));
+        results.AddRange((await _db.Templates.Where(x => x.ProgramId == programId && x.Name.ToLower().Contains(t)).Take(10).ToListAsync(ct))
+            .Select(x => new SearchResult("Template", x.Name, $"/templates/{x.Id}")));
+        results.AddRange((await _db.Workstreams.Where(x => x.ProgramId == programId && x.Name.ToLower().Contains(t)).Take(10).ToListAsync(ct))
+            .Select(x => new SearchResult("Workstream", x.Name, "/workstreams")));
+        results.AddRange((await _db.Roles.Where(x => x.ProgramId == programId && x.Name.ToLower().Contains(t)).Take(10).ToListAsync(ct))
+            .Select(x => new SearchResult("Role", x.Name, "/roles")));
+        results.AddRange((await _db.Sites.Where(x => x.ProgramId == programId && x.Name.ToLower().Contains(t)).Take(10).ToListAsync(ct))
+            .Select(x => new SearchResult("Site", x.Name, "/sites")));
+
+        return results;
+    }
 }
+
+public record SearchResult(string EntityType, string Name, string Url);

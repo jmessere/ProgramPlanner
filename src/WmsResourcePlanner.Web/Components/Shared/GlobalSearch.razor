@@ -1,0 +1,43 @@
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Application.Services.LookupService Lookup
+@inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
+@inject NavigationManager Nav
+@using Microsoft.EntityFrameworkCore
+
+<div class="global-search">
+    <input placeholder="Search people, teams, templates..." value="@_term" @oninput="OnInputAsync" />
+    @if (_results.Count > 0)
+    {
+        <ul class="global-search-results">
+            @foreach (var r in _results)
+            {
+                <li @onclick="() => GoTo(r.Url)"><span class="search-type">@r.EntityType</span> @r.Name</li>
+            }
+        </ul>
+    }
+</div>
+
+@code {
+    private string _term = string.Empty;
+    private List<WmsResourcePlanner.Application.Services.SearchResult> _results = new();
+    private int _programId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var program = await Db.Programs.FirstAsync();
+        _programId = program.Id;
+    }
+
+    private async Task OnInputAsync(ChangeEventArgs e)
+    {
+        _term = e.Value?.ToString() ?? string.Empty;
+        _results = await Lookup.SearchAllAsync(_programId, _term);
+    }
+
+    private void GoTo(string url)
+    {
+        _term = string.Empty;
+        _results.Clear();
+        Nav.NavigateTo(url);
+    }
+}
