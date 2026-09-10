@@ -114,12 +114,6 @@ table.data-grid.frozen-grid thead tr:first-child th {
     background: #f3f4f6;
 }
 
-.frozen-grid .frozen-col-1 { left: 0px; width: 140px; }
-.frozen-grid .frozen-col-2 { left: 140px; width: 100px; }
-.frozen-grid .frozen-col-3 { left: 240px; width: 120px; }
-.frozen-grid .frozen-col-4 { left: 360px; width: 120px; }
-.frozen-grid .frozen-col-5 { left: 480px; width: 130px; }
-
 .frozen-grid .frozen-col {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -129,6 +123,15 @@ table.data-grid.frozen-grid thead tr:first-child th {
 .frozen-grid .month-col {
     width: 56px;
     text-align: right;
+    padding: 0.25rem 0.3rem;
+}
+
+.frozen-grid .month-col input {
+    /* Fill the cell's own content box exactly - an explicit pixel width
+       here previously exceeded the available space and overflowed into
+       the next column, which looked like data "mixing" across columns. */
+    width: 100%;
+    box-sizing: border-box;
 }
 
 /* Visible seam marking the boundary between frozen columns and scrolling
