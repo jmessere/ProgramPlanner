@@ -35,6 +35,7 @@ public class CapacityService
         var people = await _db.People
             .Where(p => personId == null || p.Id == personId)
             .ToDictionaryAsync(p => p.Id, ct);
+        var roleNames = await _db.Roles.ToDictionaryAsync(r => r.Id, r => r.Name, ct);
 
         var monthly = _engine.ExpandToMonthly(lines, horizonStart, horizonEnd);
 
@@ -71,8 +72,12 @@ public class CapacityService
                     ? CapacityStatus.FullyAllocated
                     : CapacityStatus.Available;
 
+            var roleName = person.PrimaryRoleId is not null && roleNames.TryGetValue(person.PrimaryRoleId.Value, out var rn)
+                ? rn
+                : string.Empty;
+
             results.Add(new PersonCapacityResult(
-                personIdKey, person.DisplayName, year, month, capacity, allocated, remaining, status));
+                personIdKey, person.DisplayName, roleName, year, month, capacity, allocated, remaining, status));
         }
 
         return results

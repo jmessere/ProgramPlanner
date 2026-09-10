@@ -2,10 +2,11 @@
 @rendermode InteractiveServer
 @inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
 @inject WmsResourcePlanner.Application.Services.GapAnalysisService GapService
+@inject WmsResourcePlanner.Application.Services.CapacityService CapacityService
+@inject WmsResourcePlanner.Application.Services.RolloutCapacityService RolloutService
 @using Microsoft.EntityFrameworkCore
 
 <PageTitle>Reports</PageTitle>
-<h1>Gap Analysis (Open Demand)</h1>
 
 @if (_loading)
 {
@@ -13,6 +14,7 @@
 }
 else
 {
+    <h1>Gap Analysis (Open Demand)</h1>
     <table class="data-grid">
         <thead><tr><th>Month</th><th>Template</th><th>Workstream</th><th>Team</th><th>Role</th><th>Open FTE</th></tr></thead>
         <tbody>
@@ -29,18 +31,71 @@ else
             }
         </tbody>
     </table>
+
+    <h1>Capacity Report</h1>
+    <table class="data-grid">
+        <thead><tr><th>Person</th><th>Role</th><th>Period</th><th>Capacity</th><th>Allocated</th><th>Remaining</th><th>Status</th></tr></thead>
+        <tbody>
+            @foreach (var c in _capacity)
+            {
+                <tr class="@(c.Status == WmsResourcePlanner.Application.DTOs.CapacityStatus.Overallocated ? "cell-warning" : null)">
+                    <td>@c.PersonName</td>
+                    <td>@c.RoleName</td>
+                    <td>@(new DateOnly(c.Year, c.Month, 1).ToString("MMM yyyy"))</td>
+                    <td>@c.CapacityFte.ToString("0.##")</td>
+                    <td>@c.AllocatedFte.ToString("0.##")</td>
+                    <td>@c.RemainingFte.ToString("0.##")</td>
+                    <td>@c.Status</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    <h1>Rollout Capacity</h1>
+    @if (_rollout.Count == 0)
+    {
+        <p><em>No Rollout-type teams have resource plan lines yet.</em></p>
+    }
+    else
+    {
+        <table class="data-grid">
+            <thead><tr><th>Month</th><th>Template</th><th>Rollout Team</th><th>Site</th><th>Role</th><th>Person</th><th>Allocated FTE</th><th>Open FTE</th><th>Capacity</th><th>Conflict</th></tr></thead>
+            <tbody>
+                @foreach (var r in _rollout)
+                {
+                    <tr class="@(r.Conflict ? "cell-warning" : null)">
+                        <td>@(new DateOnly(r.Year, r.Month, 1).ToString("MMM yyyy"))</td>
+                        <td>@r.TemplateName</td>
+                        <td>@r.TeamName</td>
+                        <td>@r.SiteName</td>
+                        <td>@r.RoleName</td>
+                        <td>@(r.PersonName ?? "(open)")</td>
+                        <td>@r.AllocatedFte.ToString("0.##")</td>
+                        <td>@r.OpenFte.ToString("0.##")</td>
+                        <td>@(r.PersonCapacityFte?.ToString("0.##") ?? "-")</td>
+                        <td>@(r.Conflict ? "Yes" : "")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
 }
 
 @code {
     private bool _loading = true;
     private List<GapResult> _gaps = new();
+    private List<WmsResourcePlanner.Application.DTOs.PersonCapacityResult> _capacity = new();
+    private List<WmsResourcePlanner.Application.DTOs.RolloutCapacityResult> _rollout = new();
 
     protected override async Task OnInitializedAsync()
     {
         var program = await Db.Programs.FirstAsync();
         var scenario = await Db.PlanningScenarios.FirstAsync(s => s.ProgramId == program.Id && s.IsBaseline);
         var horizonStart = new DateOnly(DateTime.Today.Year, 1, 1);
-        _gaps = await GapService.GetOpenDemandAsync(scenario.Id, horizonStart, horizonStart.AddMonths(59));
+        var horizonEnd = horizonStart.AddMonths(59);
+        _gaps = await GapService.GetOpenDemandAsync(scenario.Id, horizonStart, horizonEnd);
+        _capacity = await CapacityService.GetPersonCapacityAsync(scenario.Id, horizonStart, horizonEnd);
+        _rollout = await RolloutService.GetRolloutCapacityAsync(scenario.Id, horizonStart, horizonEnd);
         _loading = false;
     }
 }

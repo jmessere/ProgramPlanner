@@ -10,6 +10,7 @@ public enum CapacityStatus
 public sealed record PersonCapacityResult(
     int PersonId,
     string PersonName,
+    string RoleName,
     int Year,
     int Month,
     decimal CapacityFte,

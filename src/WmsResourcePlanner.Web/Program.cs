@@ -19,6 +19,7 @@ builder.Services.AddScoped<ResourceTransformationService>();
 builder.Services.AddScoped<ResourcePlanService>();
 builder.Services.AddScoped<CapacityService>();
 builder.Services.AddScoped<GapAnalysisService>();
+builder.Services.AddScoped<RolloutCapacityService>();
 builder.Services.AddScoped<LookupService>();
 builder.Services.AddScoped<ResourcePlanGridService>();
 builder.Services.AddScoped<ScenarioService>();
