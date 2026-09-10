@@ -135,7 +135,7 @@ else
                     @foreach (var m in _monthHeaders)
                     {
                         <td class="month-col @(_newRowBlocked ? "cell-warning" : "")" title="@(_newRowBlocked ? "Select a Team and Role first" : null)">
-                            <input type="number" step="0.05" min="0" class="fte-input" style="text-align:right"
+                            <input type="number" step="0.05" min="0" class="fte-input" style="text-align:right" @key="(m.Year, m.Month, _newRowGeneration)"
                                    @onchange="e => OnNewRowCellChangedAsync(m.Year, m.Month, e.Value)" />
                         </td>
                     }
@@ -366,6 +366,21 @@ else
     // silent no-op (previously only a small toolbar status line changed).
     private bool _newRowBlocked;
 
+    // FTE values typed into the new row's month cells before a Team and
+    // Role have both been chosen. Previously these were simply discarded:
+    // once the user picked Team/Role afterwards the warning highlight
+    // cleared, giving the impression the already-typed value had been
+    // saved, when in fact it had been silently dropped and nothing ever
+    // re-submitted it. Now the value is held here and automatically
+    // flushed (saved) the moment Team+Role both become available.
+    private readonly Dictionary<(int Year, int Month), decimal> _newRowPending = new();
+
+    // Bumped after every successful flush so the new-row's month <input>
+    // elements are re-keyed and recreated by Blazor (clearing any stale
+    // typed text left in the DOM) - these inputs are intentionally left
+    // unbound/uncontrolled otherwise, so nothing else would ever clear them.
+    private int _newRowGeneration;
+
     private async Task OnNewRowCellChangedAsync(int year, int month, object? value)
     {
         var text = value?.ToString();
@@ -377,14 +392,36 @@ else
 
         if (_newTeamId is null || _newRoleId is null)
         {
-            _newRowBlocked = true;
-            _status = "Select a Team and Role first, then enter the FTE value again.";
+            if (fte == 0m)
+            {
+                _newRowPending.Remove((year, month));
+            }
+            else
+            {
+                _newRowPending[(year, month)] = fte;
+                _newRowBlocked = true;
+                _status = "Select a Team and Role, and the value(s) you entered will be saved automatically.";
+            }
             return;
         }
         if (fte == 0m) return;
 
+        _newRowPending[(year, month)] = fte;
+        await FlushNewRowPendingAsync();
+    }
+
+    // Saves every pending month value once both Team and Role are set,
+    // whether they arrived via the FTE cells (blocked earlier) or the
+    // Team/Role dropdowns being chosen after the FTE was already typed.
+    private async Task FlushNewRowPendingAsync()
+    {
+        if (_newTeamId is null || _newRoleId is null || _newRowPending.Count == 0) return;
+
         var key = new ResourcePlanRowKey(_scenarioId, _newTeamId.Value, _newAssignmentId, null, _newWorkstreamId, null, _newRoleId.Value, _newPersonId);
-        await GridService.UpdateCellAsync(_programId, key, _horizonStart, _horizonEnd, year, month, fte);
+        foreach (var ((year, month), fte) in _newRowPending)
+        {
+            await GridService.UpdateCellAsync(_programId, key, _horizonStart, _horizonEnd, year, month, fte);
+        }
         _status = $"Added new row, saved at {DateTime.Now:T}";
 
         // Resetting these fields (rather than converting this <tr> into a
@@ -392,6 +429,8 @@ else
         // the top of the grid ready for the next entry.
         _newTeamId = null; _newAssignmentId = null; _newRoleId = null; _newPersonId = null; _newWorkstreamId = null;
         _newRowBlocked = false;
+        _newRowPending.Clear();
+        _newRowGeneration++;
         await LoadAsync();
     }
 
@@ -465,7 +504,7 @@ else
     {
         var (proceed, teamId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreateTeamAsync(_programId, name), t => t.Id);
         if (proceed) _newTeamId = teamId;
-        if (_newTeamId is not null && _newRoleId is not null) _newRowBlocked = false;
+        if (_newTeamId is not null && _newRoleId is not null) await FlushNewRowPendingAsync();
     }
 
     private async Task OnNewWorkstreamChangedAsync(ChangeEventArgs e)
@@ -478,7 +517,7 @@ else
     {
         var (proceed, roleId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreateRoleAsync(_programId, name), r => r.Id);
         if (proceed) _newRoleId = roleId;
-        if (_newTeamId is not null && _newRoleId is not null) _newRowBlocked = false;
+        if (_newTeamId is not null && _newRoleId is not null) await FlushNewRowPendingAsync();
     }
 
     private async Task OnNewPersonChangedAsync(ChangeEventArgs e)
