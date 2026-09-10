@@ -54,15 +54,75 @@ public static class ExcelImportParser
         return null;
     }
 
+    // Excel's built-in number format IDs that represent dates (14-22) or date/time (45-47).
+    // ClosedXML sometimes fails to classify a reloaded cell as XLDataType.DateTime even when its
+    // style uses one of these built-in date format IDs (e.g. 17 = "mmm-yy", the format our own
+    // exporter uses for month headers) - the numeric OLE Automation date value is still stored
+    // correctly, it's just not tagged as a DateTime type on re-read. To stay robust against this,
+    // we also recognize numeric cells whose style is a known date format and interpret their
+    // numeric value as an OLE Automation date serial.
+    private static readonly HashSet<int> BuiltInDateNumberFormatIds = new() { 14, 15, 16, 17, 18, 19, 20, 21, 22, 45, 46, 47 };
+
+    private static bool LooksLikeDateFormat(IXLCell cell)
+    {
+        var numberFormatId = cell.Style.NumberFormat.NumberFormatId;
+        if (BuiltInDateNumberFormatIds.Contains(numberFormatId))
+        {
+            return true;
+        }
+
+        var format = cell.Style.NumberFormat.Format;
+        if (string.IsNullOrEmpty(format))
+        {
+            return false;
+        }
+
+        // Custom date formats (e.g. "mmm-yy") contain date tokens outside quoted literals.
+        var inQuotes = false;
+        foreach (var ch in format)
+        {
+            if (ch == '"')
+            {
+                inQuotes = !inQuotes;
+            }
+            else if (!inQuotes && (ch is 'y' or 'm' or 'd'))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static List<(int Column, int Year, int Month)> FindMonthColumns(IXLRow headerRow, int lastColumn)
     {
         var monthColumns = new List<(int Column, int Year, int Month)>();
         for (var c = 1; c <= lastColumn; c++)
         {
             var cell = headerRow.Cell(c);
-            DateTime? date = cell.DataType == XLDataType.DateTime
-                ? cell.GetDateTime()
-                : DateTime.TryParse(cell.GetString(), out var parsed) ? parsed : null;
+            DateTime? date = null;
+
+            if (cell.DataType == XLDataType.DateTime)
+            {
+                date = cell.GetDateTime();
+            }
+            else if (cell.DataType == XLDataType.Number && LooksLikeDateFormat(cell))
+            {
+                // Cell survived a save/reload cycle with its date-formatted style intact but lost
+                // its DateTime data type classification; the numeric value is still a valid OLE
+                // Automation date serial.
+                try
+                {
+                    date = DateTime.FromOADate(cell.GetDouble());
+                }
+                catch (ArgumentException)
+                {
+                    date = null;
+                }
+            }
+            else if (DateTime.TryParse(cell.GetString(), out var parsed))
+            {
+                date = parsed;
+            }
 
             if (date is not null)
             {

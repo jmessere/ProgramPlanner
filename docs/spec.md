@@ -2036,6 +2036,23 @@ re-importing adjusts the underlying Template Phase accordingly. A row with
 no "X" marks at all is flagged as an error (a phase must have at least one
 active month marked).
 
+Month-header detection on import is deliberately resilient to a real-world
+ClosedXML/Excel round-trip quirk: after a workbook has been saved and
+reopened (including a plain ClosedXML `SaveAs`, not just a real Excel
+save), a month header cell can come back with `DataType == Number` even
+though its cell style still carries a date number format (e.g. Excel's
+built-in format 17, `mmm-yy`) and its numeric value is still a valid OLE
+Automation date serial - ClosedXML does not always re-classify such cells
+as `DateTime` on reload. If month-column detection relied solely on
+`DataType == DateTime`, this would cause every month column to go
+undetected, making every Template Plan row fail with "At least one month
+must be marked with X" regardless of any actual "X" marks present. To
+guard against this, the importer also recognizes a header cell as a month
+column when it is numeric AND its style is a known date format (built-in
+number format IDs 14-22/45-47, or a custom format containing date tokens
+outside quoted literals) - in that case its value is interpreted directly
+as an OLE Automation date serial (`DateTime.FromOADate`).
+
 The Template Plan table's month columns start at the same column as the
 Resource Plan table's month columns below it, so the two timelines line
 up. Both the Template Plan section (its Template/Phase/Notes label

@@ -143,6 +143,78 @@ public class ExcelImportServiceTests
     }
 
     [Fact]
+    public async Task ParseTemplatePlanSheet_RecognizesMonthColumns_WhenHeaderDateTypeIsLostButStyleIsIntact()
+    {
+        // Regression test for a real-world bug: after a workbook round-trips through Excel,
+        // ClosedXML can reload a month-header cell with DataType == Number even though its
+        // style still carries a date number format (e.g. built-in format 17, "mmm-yy") and its
+        // numeric value is still a valid OLE Automation date serial. Previously this caused
+        // FindMonthColumns to find zero month columns, so every phase row failed with
+        // "At least one month must be marked with X" regardless of actual X marks present.
+        using var db = TestDbFactory.Create();
+
+        var program = new Program { Name = "P" };
+        db.Programs.Add(program);
+        await db.SaveChangesAsync();
+
+        var scenario = new PlanningScenario { ProgramId = program.Id, Name = "Baseline", IsBaseline = true };
+        db.PlanningScenarios.Add(scenario);
+        var template = new Template { ProgramId = program.Id, Name = "Std Rollout", Status = TemplateStatus.Active };
+        db.Templates.Add(template);
+        await db.SaveChangesAsync();
+        var phase = new TemplatePhase
+        {
+            TemplateId = template.Id, Name = "Design", SortOrder = 1,
+            StartDate = new DateOnly(2027, 2, 1), EndDate = new DateOnly(2027, 4, 30)
+        };
+        db.TemplatePhases.Add(phase);
+        await db.SaveChangesAsync();
+
+        var exportService = new ExcelExportService(db, new ResourceTransformationService());
+        var bytes = await exportService.ExportAsync(scenario.Id, new DateOnly(2027, 1, 1), new DateOnly(2027, 12, 31));
+
+        using (var editStream = new MemoryStream(bytes))
+        using (var wb = new ClosedXML.Excel.XLWorkbook(editStream))
+        {
+            var ws = wb.Worksheet("Resource Plan");
+            var templateHeaderRow = Enumerable.Range(1, ws.LastRowUsed()!.RowNumber())
+                .First(r => ws.Cell(r, 1).GetString() == "Template" && ws.Cell(r, 3).GetString() == "Notes");
+
+            // Simulate the corruption: replace the DateTime-typed header cells with a plain
+            // numeric value while keeping the same date-formatted style, mirroring what a real
+            // Excel save/reload can produce.
+            for (var c = 10; c <= 14; c++)
+            {
+                var headerCell = ws.Cell(templateHeaderRow, c);
+                var oaDate = headerCell.GetDateTime().ToOADate();
+                headerCell.Style.NumberFormat.NumberFormatId = 17; // built-in "mmm-yy"
+                headerCell.Value = oaDate;
+            }
+
+            using var savedStream = new MemoryStream();
+            wb.SaveAs(savedStream);
+            bytes = savedStream.ToArray();
+        }
+
+        using var verifyStream = new MemoryStream(bytes);
+        using (var wb = new ClosedXML.Excel.XLWorkbook(verifyStream))
+        {
+            var ws = wb.Worksheet("Resource Plan");
+            var templateHeaderRow = Enumerable.Range(1, ws.LastRowUsed()!.RowNumber())
+                .First(r => ws.Cell(r, 1).GetString() == "Template" && ws.Cell(r, 3).GetString() == "Notes");
+            // Confirm the corrupted state was actually reproduced before asserting the fix.
+            Assert.NotEqual(ClosedXML.Excel.XLDataType.DateTime, ws.Cell(templateHeaderRow, 10).DataType);
+        }
+
+        using var ms = new MemoryStream(bytes);
+        var parsedRows = ExcelImportParser.ParseTemplatePlanSheet(ms);
+        Assert.Single(parsedRows);
+        Assert.Empty(parsedRows[0].Errors);
+        Assert.Equal(new DateOnly(2027, 2, 1), parsedRows[0].StartDate);
+        Assert.Equal(new DateOnly(2027, 4, 30), parsedRows[0].EndDate);
+    }
+
+    [Fact]
     public async Task Commit_NewTeamAndPerson_CreatesEntitiesAndOpenOrFilledAllocation()
     {
         // Mirrors SPEC.md Acceptance Scenario I: a workbook user adds a brand new
