@@ -17,7 +17,7 @@ to resize. FTE is preserved; only dates change. Editing here updates the same re
 }
 else
 {
-    <div class="gantt-toolbar">
+    <div class="gantt-toolbar" style="flex-wrap:wrap;gap:0.5rem">
         <label>Scenario:
             <select @bind="_scenarioId" @bind:after="LoadAsync">
                 @foreach (var s in _scenarios)
@@ -26,17 +26,21 @@ else
                 }
             </select>
         </label>
+        <label>Person: <input @bind="_personFilter" @bind:event="oninput" placeholder="search people..." style="width:160px" /></label>
+        <label><input type="checkbox" @bind="_showTemplateOverlay" /> Show template/phase overlay</label>
         <span class="save-status">@_status</span>
         <UndoBar OnUndone="LoadAsync" />
     </div>
-    @if (_bars.Count == 0)
+    <p>Showing @FilteredBars().Count of @_bars.Count allocation(s).</p>
+    @if (FilteredBars().Count == 0)
     {
-        <p>No resource plan lines in this scenario yet.</p>
+        <p>No resource plan lines match the current filters.</p>
     }
     else
     {
-        <GanttChart Bars="_bars" HorizonStart="_horizonStart" HorizonEnd="_horizonEnd"
-                    GroupHeader="Person / Open Demand" OnBarChanged="OnLineChangedAsync" />
+        <GanttChart Bars="FilteredBars()" HorizonStart="_horizonStart" HorizonEnd="_horizonEnd"
+                    GroupHeader="Person / Open Demand" OnBarChanged="OnLineChangedAsync"
+                    TemplatePhaseBars="_templatePhaseBars" ShowTemplateOverlay="_showTemplateOverlay" />
     }
 }
 
@@ -45,9 +49,12 @@ else
     private int _scenarioId;
     private List<PlanningScenario> _scenarios = new();
     private List<WmsResourcePlanner.Application.DTOs.GanttBar> _bars = new();
+    private List<WmsResourcePlanner.Application.DTOs.GanttBar> _templatePhaseBars = new();
     private DateOnly _horizonStart;
     private DateOnly _horizonEnd;
     private string _status = string.Empty;
+    private string _personFilter = string.Empty;
+    private bool _showTemplateOverlay;
 
     protected override async Task OnInitializedAsync()
     {
@@ -58,12 +65,23 @@ else
         _scenarioId = _scenarios.FirstOrDefault(s => s.IsBaseline)?.Id ?? _scenarios.First().Id;
 
         await LoadAsync();
+        _templatePhaseBars = await GanttService.GetTemplatePhaseBarsAsync();
         _loading = false;
     }
 
     private async Task LoadAsync()
     {
         _bars = await GanttService.GetResourcePlanLineBarsAsync(_scenarioId);
+    }
+
+    // Searches on the row's GroupLabel (the person's display name, or
+    // "Open: Team / Role" for unassigned demand), so typing a person's name
+    // narrows the Gantt to just their bars while still allowing "Open" to
+    // surface open-demand rows.
+    private List<WmsResourcePlanner.Application.DTOs.GanttBar> FilteredBars()
+    {
+        if (string.IsNullOrWhiteSpace(_personFilter)) return _bars;
+        return _bars.Where(b => b.GroupLabel.Contains(_personFilter, StringComparison.OrdinalIgnoreCase)).ToList();
     }
 
     private async Task OnLineChangedAsync((int Id, DateOnly Start, DateOnly End) change)
