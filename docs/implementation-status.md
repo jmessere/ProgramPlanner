@@ -132,9 +132,6 @@ Restore._
 These are explicitly documented rather than silently omitted; see
 `/docs/acceptance-results.md` "Known, Documented Gaps" for full detail:
 
-* Filter persistence across page navigation/session (SPEC section 57) -
-  per-page filters exist (Global Timeline, scenario selector) but are not
-  remembered when navigating away and back.
 * Undo does not cover entity creation (Import commit, LookupService
   inline-create, Team/Template/Person/Role/Workstream/Site CRUD) or
   deletion - only date-range mutations (grid FTE edits, Gantt/timeline
@@ -142,15 +139,20 @@ These are explicitly documented rather than silently omitted; see
 * Real-browser interactive verification of drag/resize and Ctrl+Z has not
   been performed (only unit/service tests and static SSR HTML route
   checks) - flagged MANUAL VERIFICATION REQUIRED.
-* `ImportService.CommitAsync` always sets `FocusAreaId = null` on imported
-  rows (no Focus Area column in the export sheet); re-importing over
-  grid-edited rows that had a FocusArea would clear it.
-* No single pre-aggregated "Filled / Open / Total Need" table per role/team
-  (Acceptance Scenario D) - the underlying data is fully queryable via
-  existing services but not combined into one view.
 * Resource Plan grid still uses dropdowns (not free-text inline creation)
   for Team/Role/Person/Workstream selection when adding a row; only Excel
   import supports true "type a new name, it gets created" inline creation.
+
+Since closed:
+* Filter persistence across page navigation/session (SPEC section 57) -
+  Global Timeline filters/grouping now live in a scoped `FilterStateService`
+  injected into the page, so they survive navigation for the session.
+* `ImportService.CommitAsync` no longer clears `FocusAreaId` on imported
+  rows - a Focus Area column was added to the export/import layout and
+  wired through preview/commit; covered by a round-trip regression test.
+* Combined "Filled / Open / Total Need" table per role/team (Acceptance
+  Scenario D) - added to `/reports` via
+  `GapAnalysisService.GetFilledOpenTotalAsync`.
 
 ## Architecture Decisions
 
@@ -158,18 +160,17 @@ See `/docs/implementation-decisions.md`.
 
 ## Test Status
 
-`dotnet test tests/WmsResourcePlanner.Tests` -> 21/21 passing.
+`dotnet test tests/WmsResourcePlanner.Tests` -> 22/22 passing.
 
 ## Acceptance Status
 
 See `/docs/acceptance-results.md` for the full Definition-of-Done and
-Critical-Acceptance-Scenario assessment (24 PASS / 2 PARTIAL / 0 FAIL of 28
-DoD items; 8 PASS / 2 PARTIAL / 0 FAIL of 10 Critical Acceptance Scenarios).
+Critical-Acceptance-Scenario assessment (25 PASS / 1 PARTIAL / 0 FAIL of 28
+DoD items; 9 PASS / 1 PARTIAL / 0 FAIL of 10 Critical Acceptance Scenarios).
 
 ## Next Action
 
-No blocking work remains. Suggested follow-up priority order if further
-investment is made: (1) filter persistence (cheap, spec-required), (2) a
-combined Filled/Open/Total report view, (3) extending Undo to entity
-creation/deletion, (4) real-browser manual QA pass on drag/resize and
-Ctrl+Z, (5) FocusArea preservation on re-import.
+No blocking work remains. Remaining items are all additive polish/QA:
+(1) extending Undo to entity creation/deletion, (2) a real-browser manual
+QA pass on drag/resize and Ctrl+Z, (3) free-text inline creation on the
+Resource Plan grid itself (currently Excel-import-only).
