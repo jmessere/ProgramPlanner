@@ -104,4 +104,40 @@ public class ResourcePlanGridServiceTests
         var jan = merged.Months.Single(m => m.Year == 2027 && m.Month == 1);
         Assert.Equal(1.5m, jan.Fte);
     }
+
+    [Fact]
+    public async Task UpdateCellAsync_CreatesBrandNewRowWhenNoExistingLinesMatchTheKey()
+    {
+        using var db = TestDbFactory.Create();
+
+        var program = new Program { Name = "P" };
+        db.Programs.Add(program);
+        await db.SaveChangesAsync();
+
+        var scenario = new PlanningScenario { ProgramId = program.Id, Name = "Baseline" };
+        var role = new Role { ProgramId = program.Id, Name = "BA" };
+        var team = new Team { ProgramId = program.Id, Name = "Inbound", TeamType = "Template Build" };
+        db.PlanningScenarios.Add(scenario);
+        db.Roles.Add(role);
+        db.Teams.Add(team);
+        await db.SaveChangesAsync();
+
+        var sut = new ResourcePlanGridService(db, new ResourceTransformationService(), new UndoService(), new AuditService(db));
+
+        var horizonStart = new DateOnly(2027, 1, 1);
+        var horizonEnd = new DateOnly(2027, 12, 31);
+        var newKey = new ResourcePlanRowKey(scenario.Id, team.Id, null, null, null, null, role.Id, null);
+
+        // No ResourcePlanLine exists yet for this key - simulates typing an
+        // FTE value into the Resource Plan grid's always-present blank
+        // "new row" for a brand-new Team/Role combination.
+        await sut.UpdateCellAsync(program.Id, newKey, horizonStart, horizonEnd, 2027, 3, 0.75m);
+
+        var rows = await sut.GetGridAsync(scenario.Id, horizonStart, horizonEnd);
+        var row = Assert.Single(rows);
+        Assert.Equal(team.Id, row.Key.TeamId);
+        Assert.Equal(role.Id, row.Key.RoleId);
+        var march = row.Months.Single(m => m.Year == 2027 && m.Month == 3);
+        Assert.Equal(0.75m, march.Fte);
+    }
 }

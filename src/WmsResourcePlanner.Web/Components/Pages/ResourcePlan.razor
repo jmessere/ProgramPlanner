@@ -91,9 +91,58 @@ else
                 }
             </thead>
             <tbody>
+                <tr class="new-row" @key="NewRowKey">
+                    <td class="frozen-col" style="left:@(TeamLeft)px;width:@(TeamColWidth)px">
+                        <select class="grid-nav-cell" value="@(_newTeamId?.ToString() ?? "")" @onchange="OnNewTeamChangedAsync">
+                            <option value="">Team...</option>
+                            @foreach (var t in _teams) { <option value="@t.Id">@t.Name</option> }
+                            <option value="__new__">+ Add new...</option>
+                        </select>
+                    </td>
+                    @if (_showTemplateColumn)
+                    {
+                        <td class="frozen-col" style="left:@(TemplateLeft)px;width:@(TemplateColWidth)px">
+                            <select class="grid-nav-cell" @bind="_newAssignmentId">
+                                <option value="">(none)</option>
+                                @foreach (var a in AssignmentsForTeam(_newTeamId)) { <option value="@a.Id">@a.Template?.Name</option> }
+                            </select>
+                        </td>
+                    }
+                    @if (_showWorkstreamColumn)
+                    {
+                        <td class="frozen-col" style="left:@(WorkstreamLeft)px;width:@(WorkstreamColWidth)px">
+                            <select class="grid-nav-cell" value="@(_newWorkstreamId?.ToString() ?? "")" @onchange="OnNewWorkstreamChangedAsync">
+                                <option value="">(none)</option>
+                                @foreach (var w in _workstreams) { <option value="@w.Id">@w.Name</option> }
+                                <option value="__new__">+ Add new...</option>
+                            </select>
+                        </td>
+                    }
+                    <td class="frozen-col" style="left:@(RoleLeft)px;width:@(RoleColWidth)px">
+                        <select class="grid-nav-cell" value="@(_newRoleId?.ToString() ?? "")" @onchange="OnNewRoleChangedAsync">
+                            <option value="">Role...</option>
+                            @foreach (var r in _roles) { <option value="@r.Id">@r.Name</option> }
+                            <option value="__new__">+ Add new...</option>
+                        </select>
+                    </td>
+                    <td class="frozen-col frozen-col-last" style="left:@(PersonLeft)px;width:@(PersonColWidth)px">
+                        <select class="grid-nav-cell" value="@(_newPersonId?.ToString() ?? "")" @onchange="OnNewPersonChangedAsync">
+                            <option value="">(open demand)</option>
+                            @foreach (var p in _people) { <option value="@p.Id">@p.DisplayName</option> }
+                            <option value="__new__">+ Add new...</option>
+                        </select>
+                    </td>
+                    @foreach (var m in _monthHeaders)
+                    {
+                        <td class="month-col @(_newRowBlocked ? "cell-warning" : "")" title="@(_newRowBlocked ? "Select a Team and Role first" : null)">
+                            <input type="number" step="0.05" min="0" class="fte-input" style="text-align:right"
+                                   @onchange="e => OnNewRowCellChangedAsync(m.Year, m.Month, e.Value)" />
+                        </td>
+                    }
+                </tr>
                 @foreach (var row in FilteredRows())
                 {
-                    <tr>
+                    <tr @key="row.Key">
                         <td class="frozen-col" style="left:@(TeamLeft)px;width:@(TeamColWidth)px">
                             <select class="grid-nav-cell" value="@row.Key.TeamId" @onchange="e => OnRowTeamChangedAsync(row, e)">
                                 @foreach (var t in _teams) { <option value="@t.Id">@t.Name</option> }
@@ -143,55 +192,6 @@ else
                         }
                     </tr>
                 }
-                <tr class="new-row">
-                    <td class="frozen-col" style="left:@(TeamLeft)px;width:@(TeamColWidth)px">
-                        <select class="grid-nav-cell" value="@(_newTeamId?.ToString() ?? "")" @onchange="OnNewTeamChangedAsync">
-                            <option value="">Team...</option>
-                            @foreach (var t in _teams) { <option value="@t.Id">@t.Name</option> }
-                            <option value="__new__">+ Add new...</option>
-                        </select>
-                    </td>
-                    @if (_showTemplateColumn)
-                    {
-                        <td class="frozen-col" style="left:@(TemplateLeft)px;width:@(TemplateColWidth)px">
-                            <select class="grid-nav-cell" @bind="_newAssignmentId">
-                                <option value="">(none)</option>
-                                @foreach (var a in AssignmentsForTeam(_newTeamId)) { <option value="@a.Id">@a.Template?.Name</option> }
-                            </select>
-                        </td>
-                    }
-                    @if (_showWorkstreamColumn)
-                    {
-                        <td class="frozen-col" style="left:@(WorkstreamLeft)px;width:@(WorkstreamColWidth)px">
-                            <select class="grid-nav-cell" value="@(_newWorkstreamId?.ToString() ?? "")" @onchange="OnNewWorkstreamChangedAsync">
-                                <option value="">(none)</option>
-                                @foreach (var w in _workstreams) { <option value="@w.Id">@w.Name</option> }
-                                <option value="__new__">+ Add new...</option>
-                            </select>
-                        </td>
-                    }
-                    <td class="frozen-col" style="left:@(RoleLeft)px;width:@(RoleColWidth)px">
-                        <select class="grid-nav-cell" value="@(_newRoleId?.ToString() ?? "")" @onchange="OnNewRoleChangedAsync">
-                            <option value="">Role...</option>
-                            @foreach (var r in _roles) { <option value="@r.Id">@r.Name</option> }
-                            <option value="__new__">+ Add new...</option>
-                        </select>
-                    </td>
-                    <td class="frozen-col frozen-col-last" style="left:@(PersonLeft)px;width:@(PersonColWidth)px">
-                        <select class="grid-nav-cell" value="@(_newPersonId?.ToString() ?? "")" @onchange="OnNewPersonChangedAsync">
-                            <option value="">(open demand)</option>
-                            @foreach (var p in _people) { <option value="@p.Id">@p.DisplayName</option> }
-                            <option value="__new__">+ Add new...</option>
-                        </select>
-                    </td>
-                    @foreach (var m in _monthHeaders)
-                    {
-                        <td class="month-col">
-                            <input type="number" step="0.05" min="0" class="fte-input" style="text-align:right"
-                                   @onchange="e => OnNewRowCellChangedAsync(m.Year, m.Month, e.Value)" />
-                        </td>
-                    }
-                </tr>
             </tbody>
         </table>
     </div>
@@ -209,6 +209,7 @@ else
     private DateOnly _horizonEnd;
     private string _status = string.Empty;
     private readonly string _gridContainerId = $"resource-plan-grid-{Guid.NewGuid():N}";
+    private const string NewRowKey = "new-row";
 
     private List<Team> _teams = new();
     private List<Role> _roles = new();
@@ -348,31 +349,62 @@ else
     private async Task OnCellChangedAsync(ResourcePlanGridRow row, int year, int month, object? value)
     {
         var text = value?.ToString();
-        var fte = string.IsNullOrWhiteSpace(text) ? 0m : decimal.Parse(text);
+        if (!TryParseFte(text, out var fte))
+        {
+            _status = $"\"{text}\" is not a valid FTE value.";
+            return;
+        }
 
         await GridService.UpdateCellAsync(_programId, row.Key, _horizonStart, _horizonEnd, year, month, fte);
         _status = $"Saved at {DateTime.Now:T}";
         await LoadAsync();
     }
 
+    // True once the user has typed an FTE value into the always-present
+    // new row without first choosing a Team and Role - used to visually
+    // flag the month cells so a blocked save is obvious rather than a
+    // silent no-op (previously only a small toolbar status line changed).
+    private bool _newRowBlocked;
+
     private async Task OnNewRowCellChangedAsync(int year, int month, object? value)
     {
-        if (_newTeamId is null || _newRoleId is null)
+        var text = value?.ToString();
+        if (!TryParseFte(text, out var fte))
         {
-            _status = "Select a Team and Role before entering an FTE value.";
+            _status = $"\"{text}\" is not a valid FTE value.";
             return;
         }
 
-        var text = value?.ToString();
-        var fte = string.IsNullOrWhiteSpace(text) ? 0m : decimal.Parse(text);
+        if (_newTeamId is null || _newRoleId is null)
+        {
+            _newRowBlocked = true;
+            _status = "Select a Team and Role first, then enter the FTE value again.";
+            return;
+        }
         if (fte == 0m) return;
 
         var key = new ResourcePlanRowKey(_scenarioId, _newTeamId.Value, _newAssignmentId, null, _newWorkstreamId, null, _newRoleId.Value, _newPersonId);
         await GridService.UpdateCellAsync(_programId, key, _horizonStart, _horizonEnd, year, month, fte);
         _status = $"Added new row, saved at {DateTime.Now:T}";
 
+        // Resetting these fields (rather than converting this <tr> into a
+        // regular row) is what keeps a fresh, always-present blank row at
+        // the top of the grid ready for the next entry.
         _newTeamId = null; _newAssignmentId = null; _newRoleId = null; _newPersonId = null; _newWorkstreamId = null;
+        _newRowBlocked = false;
         await LoadAsync();
+    }
+
+    // input[type=number] always yields either an empty string or a
+    // dot-decimal value (e.g. "0.5"), regardless of the server's current
+    // culture - parsing with CultureInfo.InvariantCulture (rather than the
+    // culture-sensitive decimal.Parse used previously) avoids a
+    // FormatException - and a silently-aborted save with no visible error -
+    // on any server whose culture expects a different decimal separator.
+    private static bool TryParseFte(string? text, out decimal fte)
+    {
+        if (string.IsNullOrWhiteSpace(text)) { fte = 0m; return true; }
+        return decimal.TryParse(text, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out fte);
     }
 
     // ---- Inline editing of the leading (frozen) columns for existing rows.
@@ -427,12 +459,13 @@ else
     }
 
     // ---- Inline editing for the always-present blank "add row" at the
-    // bottom of the grid (SPEC.md section 4: "quick-add rows").
+    // top of the grid (SPEC.md section 4: "quick-add rows").
 
     private async Task OnNewTeamChangedAsync(ChangeEventArgs e)
     {
         var (proceed, teamId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreateTeamAsync(_programId, name), t => t.Id);
         if (proceed) _newTeamId = teamId;
+        if (_newTeamId is not null && _newRoleId is not null) _newRowBlocked = false;
     }
 
     private async Task OnNewWorkstreamChangedAsync(ChangeEventArgs e)
@@ -445,6 +478,7 @@ else
     {
         var (proceed, roleId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreateRoleAsync(_programId, name), r => r.Id);
         if (proceed) _newRoleId = roleId;
+        if (_newTeamId is not null && _newRoleId is not null) _newRowBlocked = false;
     }
 
     private async Task OnNewPersonChangedAsync(ChangeEventArgs e)
