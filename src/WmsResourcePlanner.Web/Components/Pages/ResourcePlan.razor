@@ -104,7 +104,7 @@ else
                         <td class="frozen-col" style="left:@(TemplateLeft)px;width:@(TemplateColWidth)px">
                             <select class="grid-nav-cell" @bind="_newAssignmentId">
                                 <option value="">(none)</option>
-                                @foreach (var a in AssignmentsForTeam(_newTeamId)) { <option value="@a.Id">@a.Template?.Name</option> }
+                                @foreach (var a in _allAssignments) { <option value="@a.Id">@AssignmentLabel(a)</option> }
                             </select>
                         </td>
                     }
@@ -154,7 +154,7 @@ else
                             <td class="frozen-col" style="left:@(TemplateLeft)px;width:@(TemplateColWidth)px">
                                 <select class="grid-nav-cell" value="@(row.Key.TeamTemplateAssignmentId?.ToString() ?? "")" @onchange="e => OnRowAssignmentChangedAsync(row, e)">
                                     <option value="">(none)</option>
-                                    @foreach (var a in AssignmentsForTeam(row.Key.TeamId)) { <option value="@a.Id">@a.Template?.Name</option> }
+                                    @foreach (var a in _allAssignments) { <option value="@a.Id">@AssignmentLabel(a)</option> }
                                 </select>
                             </td>
                         }
@@ -218,9 +218,13 @@ else
     private List<TeamTemplateAssignment> _allAssignments = new();
     private List<Template> _templates = new();
 
-    private List<TeamTemplateAssignment> AssignmentsForTeam(int? teamId) => teamId is int tid
-        ? _allAssignments.Where(a => a.TeamId == tid).ToList()
-        : new();
+    // The Template dropdown intentionally lists every TeamTemplateAssignment
+    // in the program (not just the ones belonging to the row's current
+    // team) so a row can always be freely reassigned to any team/template
+    // combination. Since assignments now span every team, the label
+    // includes the team name to disambiguate identically-named templates
+    // assigned to different teams.
+    private static string AssignmentLabel(TeamTemplateAssignment a) => $"{a.Template?.Name} ({a.Team?.Name})";
 
     private int? _newTeamId;
     private int? _newAssignmentId;
@@ -301,7 +305,8 @@ else
         _roles = await Db.Roles.Where(r => r.ProgramId == _programId).OrderBy(r => r.Name).ToListAsync();
         _people = await Db.People.Where(p => p.ProgramId == _programId).OrderBy(p => p.DisplayName).ToListAsync();
         _workstreams = await Db.Workstreams.Where(w => w.ProgramId == _programId).OrderBy(w => w.Name).ToListAsync();
-        _allAssignments = await Db.TeamTemplateAssignments.Include(a => a.Template).ToListAsync();
+        _allAssignments = await Db.TeamTemplateAssignments.Include(a => a.Template).Include(a => a.Team)
+            .OrderBy(a => a.Template!.Name).ThenBy(a => a.Team!.Name).ToListAsync();
     }
 
     private async Task LoadAsync()
