@@ -248,7 +248,7 @@ public class ExcelExportServiceTests
         workbook.RecalculateAllFormulas();
         var errorCells = workbook.Worksheets
             .SelectMany(w => w.CellsUsed(c => c.HasFormula))
-            .Where(c => c.CachedValue is ClosedXML.Excel.XLError)
+            .Where(c => c.CachedValue.IsError)
             .Select(c => $"{c.Worksheet.Name}!{c.Address}: {c.FormulaA1} => {c.CachedValue}")
             .ToList();
         Assert.True(errorCells.Count == 0, "Formula errors found:\n" + string.Join("\n", errorCells));

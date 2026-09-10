@@ -487,7 +487,15 @@ public class ExcelExportService
                 var idxs = quarterMonthIdx[q];
                 var monthRange = $"{colLetter(RpFirstMonthCol + idxs[0])}{r}:{colLetter(RpFirstMonthCol + idxs[^1])}{r}";
                 rpWs.Cell(r, quarterCostCol[q]).FormulaA1 = $"=SUM({monthRange})*(2080/12)*${effRateColLetter}{r}";
-                rpWs.Cell(r, quarterCountCol[q]).FormulaA1 = $"=AVERAGE({monthRange})";
+                // SUM/count instead of AVERAGE: a row with no FTE at all in
+                // this quarter's months (all blank) would make AVERAGE()
+                // return #DIV/0!, which then poisons every pool/vendor
+                // SUMIFS that includes this row. SUM treats blanks as 0
+                // (correct - "not allocated that month" is 0, not "no
+                // data"), and dividing by the fixed month count is
+                // mathematically identical to AVERAGE whenever values are
+                // actually present.
+                rpWs.Cell(r, quarterCountCol[q]).FormulaA1 = $"=SUM({monthRange})/{idxs.Count}";
             }
         }
 
