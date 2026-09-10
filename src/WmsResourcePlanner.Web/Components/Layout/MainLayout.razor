@@ -1,61 +1,7 @@
 @inherits LayoutComponentBase
 
-<div class="app-shell @(_collapsed ? "sidebar-collapsed" : "")">
-    <nav class="sidebar">
-        <div class="sidebar-header">
-            @if (!_collapsed)
-            {
-                <div class="brand">WMS Resource Planner</div>
-            }
-            <button class="collapse-toggle" title="@(_collapsed ? "Expand sidebar" : "Collapse sidebar")" @onclick="ToggleCollapsed">
-                @(_collapsed ? "»" : "«")
-            </button>
-        </div>
-
-        @if (!_collapsed)
-        {
-            <GlobalSearch />
-        }
-
-        <NavLink href="/" Match="Microsoft.AspNetCore.Components.Routing.NavLinkMatch.All" title="Overview"><span class="nav-icon">🏠</span><span class="nav-label">Overview</span></NavLink>
-        <NavLink href="/resource-plan" title="Resource Plan"><span class="nav-icon">📋</span><span class="nav-label">Resource Plan</span></NavLink>
-
-        <div class="nav-group">
-            @if (!_collapsed)
-            {
-                <div class="nav-group-title">Gantt Views</div>
-            }
-            <NavLink href="/gantt/templates" title="Template Gantt"><span class="nav-icon">📅</span><span class="nav-label">Template Gantt</span></NavLink>
-            <NavLink href="/gantt/teams" title="Team-Template Gantt"><span class="nav-icon">📅</span><span class="nav-label">Team-Template Gantt</span></NavLink>
-            <NavLink href="/gantt/resources" title="Resource Gantt"><span class="nav-icon">📅</span><span class="nav-label">Resource Gantt</span></NavLink>
-            <NavLink href="/global-timeline" title="Global Timeline"><span class="nav-icon">📅</span><span class="nav-label">Global Timeline</span></NavLink>
-        </div>
-
-        <div class="nav-group">
-            @if (!_collapsed)
-            {
-                <div class="nav-group-title">Configuration</div>
-            }
-            <NavLink href="/people" title="People"><span class="nav-icon">👤</span><span class="nav-label">People</span></NavLink>
-            <NavLink href="/teams" title="Teams"><span class="nav-icon">👥</span><span class="nav-label">Teams</span></NavLink>
-            <NavLink href="/templates" title="Templates"><span class="nav-icon">🧩</span><span class="nav-label">Templates</span></NavLink>
-            <NavLink href="/workstreams" title="Workstreams"><span class="nav-icon">🔀</span><span class="nav-label">Workstreams</span></NavLink>
-            <NavLink href="/roles" title="Roles"><span class="nav-icon">🏷️</span><span class="nav-label">Roles</span></NavLink>
-            <NavLink href="/sites" title="Sites"><span class="nav-icon">📍</span><span class="nav-label">Sites</span></NavLink>
-        </div>
-
-        <div class="nav-group">
-            @if (!_collapsed)
-            {
-                <div class="nav-group-title">Admin</div>
-            }
-            <NavLink href="/reports" title="Reports"><span class="nav-icon">📊</span><span class="nav-label">Reports</span></NavLink>
-            <NavLink href="/excel" title="Excel"><span class="nav-icon">📗</span><span class="nav-label">Excel</span></NavLink>
-            <NavLink href="/audit-history" title="Audit History"><span class="nav-icon">🕘</span><span class="nav-label">Audit History</span></NavLink>
-            <NavLink href="/backup" title="Backup"><span class="nav-icon">💾</span><span class="nav-label">Backup</span></NavLink>
-            <NavLink href="/settings" title="Settings"><span class="nav-icon">⚙️</span><span class="nav-label">Settings</span></NavLink>
-        </div>
-    </nav>
+<div class="app-shell">
+    <NavMenu />
     <main class="content">
         @Body
     </main>
@@ -66,12 +12,3 @@
     <a href="." class="reload">Reload</a>
     <span class="dismiss">🗙</span>
 </div>
-
-@code {
-    private bool _collapsed;
-
-    private void ToggleCollapsed()
-    {
-        _collapsed = !_collapsed;
-    }
-}
