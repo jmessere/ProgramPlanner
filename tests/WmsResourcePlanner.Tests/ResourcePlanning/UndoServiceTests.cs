@@ -32,7 +32,7 @@ public class UndoServiceTests
         await db.SaveChangesAsync();
 
         var undo = new UndoService();
-        var sut = new ResourcePlanGridService(db, new ResourceTransformationService(), undo);
+        var sut = new ResourcePlanGridService(db, new ResourceTransformationService(), undo, new AuditService(db));
 
         var key = new Application.DTOs.ResourcePlanRowKey(scenario.Id, team.Id, null, null, null, null, role.Id, null);
         var horizonStart = new DateOnly(2027, 1, 1);

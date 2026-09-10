@@ -14,11 +14,13 @@ public class GanttService
 {
     private readonly IAppDbContext _db;
     private readonly UndoService _undo;
+    private readonly AuditService _audit;
 
-    public GanttService(IAppDbContext db, UndoService undo)
+    public GanttService(IAppDbContext db, UndoService undo, AuditService audit)
     {
         _db = db;
         _undo = undo;
+        _audit = audit;
     }
 
     // ---- Template Gantt: TemplatePhase bars grouped by Template ----
@@ -49,6 +51,7 @@ public class GanttService
         phase.StartDate = start;
         phase.EndDate = end;
         await _db.SaveChangesAsync(ct);
+        await _audit.RecordAsync("TemplatePhase", phaseId, "DateChange", new { prevStart, prevEnd }, new { start, end }, ct);
 
         _undo.Push($"Move/resize template phase \"{phase.Name}\"", async () =>
         {
@@ -89,6 +92,7 @@ public class GanttService
         assignment.StartDate = start;
         assignment.EndDate = end;
         await _db.SaveChangesAsync(ct);
+        await _audit.RecordAsync("TeamTemplateAssignment", assignmentId, "DateChange", new { prevStart, prevEnd }, new { start, end }, ct);
 
         _undo.Push("Move/resize team-template assignment", async () =>
         {
@@ -141,6 +145,7 @@ public class GanttService
         line.StartDate = start;
         line.EndDate = end;
         await _db.SaveChangesAsync(ct);
+        await _audit.RecordAsync("ResourcePlanLine", lineId, "DateChange", new { prevStart, prevEnd }, new { start, end }, ct);
 
         _undo.Push("Move/resize resource allocation", async () =>
         {

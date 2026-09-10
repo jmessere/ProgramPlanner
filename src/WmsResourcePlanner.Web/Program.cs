@@ -27,6 +27,8 @@ builder.Services.AddScoped<GanttService>();
 builder.Services.AddScoped<ValidationService>();
 builder.Services.AddScoped<ImportService>();
 builder.Services.AddScoped<UndoService>();
+builder.Services.AddScoped<AuditService>();
+builder.Services.AddSingleton<WmsResourcePlanner.Infrastructure.Data.BackupService>();
 builder.Services.AddScoped<WmsResourcePlanner.Infrastructure.Excel.ExcelExportService>();
 
 var app = builder.Build();

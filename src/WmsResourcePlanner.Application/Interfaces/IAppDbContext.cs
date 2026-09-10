@@ -38,5 +38,7 @@ public interface IAppDbContext
 
     DbSet<TeamSiteAssignment> TeamSiteAssignments { get; }
 
+    DbSet<AuditEntry> AuditEntries { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

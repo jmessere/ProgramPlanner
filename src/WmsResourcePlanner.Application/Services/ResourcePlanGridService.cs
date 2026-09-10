@@ -17,12 +17,14 @@ public class ResourcePlanGridService
     private readonly IAppDbContext _db;
     private readonly ResourceTransformationService _engine;
     private readonly UndoService _undo;
+    private readonly AuditService _audit;
 
-    public ResourcePlanGridService(IAppDbContext db, ResourceTransformationService engine, UndoService undo)
+    public ResourcePlanGridService(IAppDbContext db, ResourceTransformationService engine, UndoService undo, AuditService audit)
     {
         _db = db;
         _engine = engine;
         _undo = undo;
+        _audit = audit;
     }
 
     public async Task<List<ResourcePlanGridRow>> GetGridAsync(
@@ -127,6 +129,14 @@ public class ResourcePlanGridService
         }
 
         await _db.SaveChangesAsync(ct);
+
+        await _audit.RecordAsync(
+            "ResourcePlanLine",
+            key.TeamId,
+            "GridCellEdit",
+            new { existingLines.FirstOrDefault()?.Fte, Year = year, Month = month },
+            new { NewFte = newFte, Year = year, Month = month },
+            ct);
 
         _undo.Push($"Resource Plan cell edit ({year}-{month:00})", async () =>
         {

@@ -38,6 +38,8 @@ public class AppDbContext : DbContext, IAppDbContext
 
     public DbSet<TeamSiteAssignment> TeamSiteAssignments => Set<TeamSiteAssignment>();
 
+    public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

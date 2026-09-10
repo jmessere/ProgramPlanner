@@ -1,0 +1,57 @@
+@page "/backup"
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Infrastructure.Data.BackupService BackupSvc
+@inject IJSRuntime JS
+
+<PageTitle>Backup</PageTitle>
+<h1>Database Backup</h1>
+<p>SQLite deployments only (SPEC.md section 95). Restore requires confirmation and overwrites the live database.</p>
+
+<button class="btn" @onclick="BackupNowAsync">Backup Database</button>
+<p class="save-status">@_status</p>
+
+<h2>Available Backups</h2>
+@if (_backups.Count == 0)
+{
+    <p><em>No backups yet.</em></p>
+}
+else
+{
+    <table class="data-grid">
+        <thead><tr><th>File</th><th>Created (UTC)</th><th>Size</th><th></th></tr></thead>
+        <tbody>
+            @foreach (var b in _backups)
+            {
+                <tr>
+                    <td>@b.FileName</td>
+                    <td>@b.CreatedUtc.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                    <td>@((b.SizeBytes / 1024.0).ToString("0.#")) KB</td>
+                    <td><button class="btn secondary" @onclick="() => RestoreAsync(b.FileName)">Restore</button></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<(string FileName, DateTime CreatedUtc, long SizeBytes)> _backups = new();
+    private string _status = string.Empty;
+
+    protected override void OnInitialized() => _backups = BackupSvc.ListBackups();
+
+    private async Task BackupNowAsync()
+    {
+        var fileName = await BackupSvc.BackupAsync();
+        _backups = BackupSvc.ListBackups();
+        _status = $"Backup created: {fileName}";
+    }
+
+    private async Task RestoreAsync(string fileName)
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm", $"Restore \"{fileName}\"? This will overwrite the live database.");
+        if (!confirmed) return;
+
+        await BackupSvc.RestoreAsync(fileName);
+        _status = $"Restored from {fileName}. Please restart the application to ensure a clean connection state.";
+    }
+}

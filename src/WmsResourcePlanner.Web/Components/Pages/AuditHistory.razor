@@ -1,0 +1,40 @@
+@page "/audit-history"
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Application.Services.AuditService Audit
+
+<PageTitle>Audit History</PageTitle>
+<h1>Audit History</h1>
+<p>Recent planning changes (resource plan lines, team-template dates, template phase dates, team dates).</p>
+
+@if (_entries.Count == 0)
+{
+    <p><em>No audited changes recorded yet.</em></p>
+}
+else
+{
+    <table class="data-grid">
+        <thead><tr><th>Changed (UTC)</th><th>Entity Type</th><th>Entity Id</th><th>Change Type</th><th>Old Value</th><th>New Value</th></tr></thead>
+        <tbody>
+            @foreach (var e in _entries)
+            {
+                <tr>
+                    <td>@e.ChangedUtc.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                    <td>@e.EntityType</td>
+                    <td>@e.EntityId</td>
+                    <td>@e.ChangeType</td>
+                    <td>@e.OldValue</td>
+                    <td>@e.NewValue</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private List<WmsResourcePlanner.Domain.Entities.AuditEntry> _entries = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _entries = await Audit.GetRecentAsync();
+    }
+}
