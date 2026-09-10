@@ -77,9 +77,23 @@ Restore._
   reverse team-assignment view). All wired to the corresponding
   Application services.
 * `ResourcePlanGridService` + `/resource-plan` page: the primary 60-month
-  editable Resource Plan grid with frozen row-header columns, add-row UI,
-  per-cell editing (re-expand -> apply change -> re-consolidate ->
-  persist), inline validation-warning highlighting, and an Undo bar.
+  (configurable via `/settings`) editable Resource Plan grid with frozen
+  row-header columns, per-cell editing (re-expand -> apply change ->
+  re-consolidate -> persist), inline validation-warning highlighting, and
+  an Undo bar. All leading columns (Team/Template/Workstream/Role/Person)
+  are inline-editable dropdowns, each with a "+ Add new..." option that
+  creates the entity on the fly via `LookupService` and re-points the
+  row's lines (`UpdateRowContextAsync`, merges into an existing row if the
+  new combination collides, summing FTE). An always-present blank row at
+  the bottom lets a new planning row be started by simply typing an FTE
+  value once Team+Role are chosen (no explicit "Add row" click). Text
+  filters for Team/Template/Workstream/Role/Person. Month FTE cells
+  support Excel-like Arrow-key/Enter keyboard navigation between cells
+  (`wwwroot/js/gantt.js`, `window.wmsGridNav`). An optional "Show
+  templates/phases overlay" toggle adds two sticky rows above the grid
+  (vertically fixed while scrolling) showing each Template's and
+  TemplatePhase's active months as distinct colors, for visual reference
+  against the plan.
 * `GanttChart.razor` (shared component) + three pages: `/gantt/templates`,
   `/gantt/teams`, `/gantt/resources` - draggable/resizable bars via a
   generic JS interop module (`wwwroot/js/gantt.js`), each with an Undo bar.
@@ -109,7 +123,7 @@ Restore._
   ResourcePlanLines into a new named scenario (master data such as Teams/
   People/Templates/Roles is shared, not copied). Wired into DI and exposed
   via a "Duplicate Scenario" button on `/resource-plan`.
-* Automated tests (xUnit, 21 tests, all passing): transformation engine
+* Automated tests (xUnit, 29 tests, all passing): transformation engine
   (month splitting, overlap summing, year-boundary handling, range
   consolidation, round-trip, 60-month horizon), capacity overallocation,
   rollout capacity (team-type filtering, site join, open/allocated split),
@@ -118,8 +132,11 @@ Restore._
   demand semantics, Excel export structure/content, Excel import round-trip
   + new-master-data scenario, scenario duplication (copies plan lines,
   shares master data), inline validation warnings (overallocation,
-  availability, team-template/phase/team-date bounds, role mismatch), and
-  undo (grid cell edit revert).
+  availability, team-template/phase/team-date bounds, role mismatch),
+  undo (grid cell edit revert, grid row-context edit revert), configurable
+  planning horizon, and Resource Plan grid row-context edits (re-pointing
+  a row's lines to new Team/Role/Workstream/Person, including merge-sums-
+  FTE when the new combination collides with an existing row).
 * End-to-end verified: `dotnet run` successfully applies migrations, seeds
   data, and serves all navigation routes (Overview, Resource Plan, all 3
   Gantt views, Global Timeline, People + Person Detail, Teams, Templates,
@@ -139,9 +156,9 @@ These are explicitly documented rather than silently omitted; see
 * Real-browser interactive verification of drag/resize and Ctrl+Z has not
   been performed (only unit/service tests and static SSR HTML route
   checks) - flagged MANUAL VERIFICATION REQUIRED.
-* Resource Plan grid still uses dropdowns (not free-text inline creation)
-  for Team/Role/Person/Workstream selection when adding a row; only Excel
-  import supports true "type a new name, it gets created" inline creation.
+* Resource Plan grid leading columns now support "+ Add new..." inline
+  creation via `LookupService` (like Excel import), not just plain
+  dropdown selection of existing values.
 
 Since closed:
 * Filter persistence across page navigation/session (SPEC section 57) -

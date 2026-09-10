@@ -1,3 +1,49 @@
+window.wmsGridNav = {
+    init: function (containerId) {
+        const container = document.getElementById(containerId);
+        if (!container || container.dataset.wmsGridNavBound === "1") return;
+        container.dataset.wmsGridNavBound = "1";
+
+        container.addEventListener("keydown", function (e) {
+            const input = e.target.closest("input.fte-input");
+            if (!input) return;
+
+            const inputs = Array.from(container.querySelectorAll("input.fte-input"));
+            const idx = inputs.indexOf(input);
+            if (idx === -1) return;
+
+            const cols = parseInt(container.dataset.monthCols, 10) || 1;
+            let target = -1;
+
+            switch (e.key) {
+                case "ArrowRight":
+                    if (input.selectionStart === input.value.length) target = idx + 1;
+                    break;
+                case "ArrowLeft":
+                    if (input.selectionStart === 0) target = idx - 1;
+                    break;
+                case "ArrowDown":
+                    target = idx + cols;
+                    break;
+                case "ArrowUp":
+                    target = idx - cols;
+                    break;
+                case "Enter":
+                    target = idx + cols;
+                    break;
+                default:
+                    return;
+            }
+
+            if (target >= 0 && target < inputs.length) {
+                e.preventDefault();
+                inputs[target].focus();
+                inputs[target].select();
+            }
+        });
+    }
+};
+
 // Generic drag/resize support for the Gantt views. Bars are absolutely
 // positioned <div class="gantt-bar"> elements with a data-id attribute and
 // left/width set in pixels. Dragging the bar body moves it; dragging the

@@ -5,6 +5,8 @@
 @inject WmsResourcePlanner.Application.Services.ScenarioService ScenarioService
 @inject WmsResourcePlanner.Application.Services.ValidationService ValidationService
 @inject WmsResourcePlanner.Application.Services.HorizonService HorizonService
+@inject WmsResourcePlanner.Application.Services.LookupService Lookup
+@inject IJSRuntime JS
 @using Microsoft.EntityFrameworkCore
 @using WmsResourcePlanner.Domain.Entities
 
@@ -31,92 +33,161 @@ else
         <UndoBar OnUndone="LoadAsync" />
         <label><input type="checkbox" @bind="_showTemplateColumn" /> Template column</label>
         <label><input type="checkbox" @bind="_showWorkstreamColumn" /> Workstream column</label>
+        <label><input type="checkbox" @bind="_showPhaseOverlay" /> Show templates/phases overlay</label>
         <span style="margin-left:auto">Horizon: @_horizonStart.ToString("MMM yyyy") – @_horizonEnd.ToString("MMM yyyy") (<a href="/settings">change</a>)</span>
     </div>
 
-    <details style="margin-bottom:0.75rem">
-        <summary>+ Add planning row</summary>
-        <div class="toolbar">
-            <select @bind="_newTeamId">
-                <option value="">Team...</option>
-                @foreach (var t in _teams) { <option value="@t.Id">@t.Name</option> }
-            </select>
-            <select @bind="_newAssignmentId">
-                <option value="">Template assignment (optional)</option>
-                @foreach (var a in _assignmentsForNewTeam) { <option value="@a.Id">@a.Template?.Name (@a.StartDate.ToString("MMM yy")-@a.EndDate.ToString("MMM yy"))</option> }
-            </select>
-            <select @bind="_newRoleId">
-                <option value="">Role...</option>
-                @foreach (var r in _roles) { <option value="@r.Id">@r.Name</option> }
-            </select>
-            <select @bind="_newPersonId">
-                <option value="">(open demand)</option>
-                @foreach (var p in _people) { <option value="@p.Id">@p.DisplayName</option> }
-            </select>
-            <select @bind="_newWorkstreamId">
-                <option value="">Workstream (optional)</option>
-                @foreach (var w in _workstreams) { <option value="@w.Id">@w.Name</option> }
-            </select>
-            <button class="btn" @onclick="AddRowAsync">Add</button>
-        </div>
-    </details>
+    <div class="toolbar" style="flex-wrap:wrap">
+        <label>Team: <input @bind="_filterTeam" @bind:event="oninput" placeholder="contains..." style="width:110px" /></label>
+        <label>Template: <input @bind="_filterTemplate" @bind:event="oninput" placeholder="contains..." style="width:110px" /></label>
+        <label>Workstream: <input @bind="_filterWorkstream" @bind:event="oninput" placeholder="contains..." style="width:110px" /></label>
+        <label>Role: <input @bind="_filterRole" @bind:event="oninput" placeholder="contains..." style="width:110px" /></label>
+        <label>Person: <input @bind="_filterPerson" @bind:event="oninput" placeholder="contains..." style="width:110px" /></label>
+        <span>Showing @FilteredRows().Count of @_rows.Count row(s).</span>
+    </div>
 
-    <div class="grid-scroll">
+    <div class="grid-scroll" id="@_gridContainerId" data-month-cols="@_monthHeaders.Count">
         <table class="data-grid frozen-grid" style="width:@(TotalGridWidth)px">
             <thead>
-                <tr>
-                    <th class="frozen-col" style="left:@(TeamLeft)px;width:@(TeamColWidth)px">Team</th>
+                <tr style="height:@(HeaderRowHeight)px">
+                    <th class="frozen-col" style="left:@(TeamLeft)px;width:@(TeamColWidth)px;top:0">Team</th>
                     @if (_showTemplateColumn)
                     {
-                        <th class="frozen-col" style="left:@(TemplateLeft)px;width:@(TemplateColWidth)px">Template</th>
+                        <th class="frozen-col" style="left:@(TemplateLeft)px;width:@(TemplateColWidth)px;top:0">Template</th>
                     }
                     @if (_showWorkstreamColumn)
                     {
-                        <th class="frozen-col" style="left:@(WorkstreamLeft)px;width:@(WorkstreamColWidth)px">Workstream</th>
+                        <th class="frozen-col" style="left:@(WorkstreamLeft)px;width:@(WorkstreamColWidth)px;top:0">Workstream</th>
                     }
-                    <th class="frozen-col" style="left:@(RoleLeft)px;width:@(RoleColWidth)px">Role</th>
-                    <th class="frozen-col frozen-col-last" style="left:@(PersonLeft)px;width:@(PersonColWidth)px">Person</th>
+                    <th class="frozen-col" style="left:@(RoleLeft)px;width:@(RoleColWidth)px;top:0">Role</th>
+                    <th class="frozen-col frozen-col-last" style="left:@(PersonLeft)px;width:@(PersonColWidth)px;top:0">Person</th>
                     @foreach (var m in _monthHeaders)
                     {
-                        <th class="month-col">@m.ToString("MMM-yy")</th>
+                        <th class="month-col" style="top:0">@m.ToString("MMM-yy")</th>
                     }
                 </tr>
+                @if (_showPhaseOverlay)
+                {
+                    <tr class="overlay-row" style="height:@(HeaderRowHeight)px">
+                        <th class="frozen-col overlay-label" colspan="@FrozenColumnCount" style="left:0px;width:@(TotalFrozenWidth)px;top:@(HeaderRowHeight)px">Templates</th>
+                        @foreach (var m in _monthHeaders)
+                        {
+                            var cell = TemplateCellFor(m);
+                            <th class="month-col overlay-cell" style="top:@(HeaderRowHeight)px;@(cell is null ? "" : $"background:{cell.Color};color:#fff")" title="@cell?.Label">@cell?.Label</th>
+                        }
+                    </tr>
+                    <tr class="overlay-row" style="height:@(HeaderRowHeight)px">
+                        <th class="frozen-col overlay-label" colspan="@FrozenColumnCount" style="left:0px;width:@(TotalFrozenWidth)px;top:@(HeaderRowHeight * 2)px">Phases</th>
+                        @foreach (var m in _monthHeaders)
+                        {
+                            var cell = PhaseCellFor(m);
+                            <th class="month-col overlay-cell" style="top:@(HeaderRowHeight * 2)px;@(cell is null ? "" : $"background:{cell.Color};color:#fff")" title="@cell?.Label">@cell?.Label</th>
+                        }
+                    </tr>
+                }
             </thead>
             <tbody>
-                @foreach (var row in _rows)
+                @foreach (var row in FilteredRows())
                 {
                     <tr>
-                        <td class="frozen-col" style="left:@(TeamLeft)px;width:@(TeamColWidth)px">@row.TeamName</td>
+                        <td class="frozen-col" style="left:@(TeamLeft)px;width:@(TeamColWidth)px">
+                            <select value="@row.Key.TeamId" @onchange="e => OnRowTeamChangedAsync(row, e)">
+                                @foreach (var t in _teams) { <option value="@t.Id">@t.Name</option> }
+                                <option value="__new__">+ Add new...</option>
+                            </select>
+                        </td>
                         @if (_showTemplateColumn)
                         {
-                            <td class="frozen-col" style="left:@(TemplateLeft)px;width:@(TemplateColWidth)px">@row.TemplateName</td>
+                            <td class="frozen-col" style="left:@(TemplateLeft)px;width:@(TemplateColWidth)px">
+                                <select value="@(row.Key.TeamTemplateAssignmentId?.ToString() ?? "")" @onchange="e => OnRowAssignmentChangedAsync(row, e)">
+                                    <option value="">(none)</option>
+                                    @foreach (var a in AssignmentsForTeam(row.Key.TeamId)) { <option value="@a.Id">@a.Template?.Name</option> }
+                                </select>
+                            </td>
                         }
                         @if (_showWorkstreamColumn)
                         {
-                            <td class="frozen-col" style="left:@(WorkstreamLeft)px;width:@(WorkstreamColWidth)px">@row.WorkstreamName</td>
+                            <td class="frozen-col" style="left:@(WorkstreamLeft)px;width:@(WorkstreamColWidth)px">
+                                <select value="@(row.Key.WorkstreamId?.ToString() ?? "")" @onchange="e => OnRowWorkstreamChangedAsync(row, e)">
+                                    <option value="">(none)</option>
+                                    @foreach (var w in _workstreams) { <option value="@w.Id">@w.Name</option> }
+                                    <option value="__new__">+ Add new...</option>
+                                </select>
+                            </td>
                         }
-                        <td class="frozen-col" style="left:@(RoleLeft)px;width:@(RoleColWidth)px">@row.RoleName</td>
+                        <td class="frozen-col" style="left:@(RoleLeft)px;width:@(RoleColWidth)px">
+                            <select value="@row.Key.RoleId" @onchange="e => OnRowRoleChangedAsync(row, e)">
+                                @foreach (var r in _roles) { <option value="@r.Id">@r.Name</option> }
+                                <option value="__new__">+ Add new...</option>
+                            </select>
+                        </td>
                         <td class="frozen-col frozen-col-last" style="left:@(PersonLeft)px;width:@(PersonColWidth)px">
-                            @if (row.IsOpenDemand)
-                            {
-                                <span class="badge open-demand">Open demand</span>
-                            }
-                            else
-                            {
-                                <span class="badge named">@row.PersonName</span>
-                            }
+                            <select value="@(row.Key.PersonId?.ToString() ?? "")" @onchange="e => OnRowPersonChangedAsync(row, e)">
+                                <option value="">(open demand)</option>
+                                @foreach (var p in _people) { <option value="@p.Id">@p.DisplayName</option> }
+                                <option value="__new__">+ Add new...</option>
+                            </select>
                         </td>
                         @foreach (var mv in row.Months)
                         {
                             var warning = GetWarning(row.Key, mv.Year, mv.Month);
                             <td class="month-col @(warning is null ? "" : "cell-warning")" title="@warning">
-                                <input type="number" step="0.05" min="0" style="text-align:right"
+                                <input type="number" step="0.05" min="0" class="fte-input" style="text-align:right"
                                        value="@(mv.Fte == 0 ? "" : mv.Fte.ToString("0.##"))"
                                        @onchange="e => OnCellChangedAsync(row, mv.Year, mv.Month, e.Value)" />
                             </td>
                         }
                     </tr>
                 }
+                <tr class="new-row">
+                    <td class="frozen-col" style="left:@(TeamLeft)px;width:@(TeamColWidth)px">
+                        <select value="@(_newTeamId?.ToString() ?? "")" @onchange="OnNewTeamChangedAsync">
+                            <option value="">Team...</option>
+                            @foreach (var t in _teams) { <option value="@t.Id">@t.Name</option> }
+                            <option value="__new__">+ Add new...</option>
+                        </select>
+                    </td>
+                    @if (_showTemplateColumn)
+                    {
+                        <td class="frozen-col" style="left:@(TemplateLeft)px;width:@(TemplateColWidth)px">
+                            <select @bind="_newAssignmentId">
+                                <option value="">(none)</option>
+                                @foreach (var a in AssignmentsForTeam(_newTeamId)) { <option value="@a.Id">@a.Template?.Name</option> }
+                            </select>
+                        </td>
+                    }
+                    @if (_showWorkstreamColumn)
+                    {
+                        <td class="frozen-col" style="left:@(WorkstreamLeft)px;width:@(WorkstreamColWidth)px">
+                            <select value="@(_newWorkstreamId?.ToString() ?? "")" @onchange="OnNewWorkstreamChangedAsync">
+                                <option value="">(none)</option>
+                                @foreach (var w in _workstreams) { <option value="@w.Id">@w.Name</option> }
+                                <option value="__new__">+ Add new...</option>
+                            </select>
+                        </td>
+                    }
+                    <td class="frozen-col" style="left:@(RoleLeft)px;width:@(RoleColWidth)px">
+                        <select value="@(_newRoleId?.ToString() ?? "")" @onchange="OnNewRoleChangedAsync">
+                            <option value="">Role...</option>
+                            @foreach (var r in _roles) { <option value="@r.Id">@r.Name</option> }
+                            <option value="__new__">+ Add new...</option>
+                        </select>
+                    </td>
+                    <td class="frozen-col frozen-col-last" style="left:@(PersonLeft)px;width:@(PersonColWidth)px">
+                        <select value="@(_newPersonId?.ToString() ?? "")" @onchange="OnNewPersonChangedAsync">
+                            <option value="">(open demand)</option>
+                            @foreach (var p in _people) { <option value="@p.Id">@p.DisplayName</option> }
+                            <option value="__new__">+ Add new...</option>
+                        </select>
+                    </td>
+                    @foreach (var m in _monthHeaders)
+                    {
+                        <td class="month-col">
+                            <input type="number" step="0.05" min="0" class="fte-input" style="text-align:right"
+                                   @onchange="e => OnNewRowCellChangedAsync(m.Year, m.Month, e.Value)" />
+                        </td>
+                    }
+                </tr>
             </tbody>
         </table>
     </div>
@@ -133,13 +204,16 @@ else
     private DateOnly _horizonStart;
     private DateOnly _horizonEnd;
     private string _status = string.Empty;
+    private readonly string _gridContainerId = $"resource-plan-grid-{Guid.NewGuid():N}";
 
     private List<Team> _teams = new();
     private List<Role> _roles = new();
     private List<Person> _people = new();
     private List<Workstream> _workstreams = new();
     private List<TeamTemplateAssignment> _allAssignments = new();
-    private List<TeamTemplateAssignment> _assignmentsForNewTeam => _newTeamId is int tid
+    private List<Template> _templates = new();
+
+    private List<TeamTemplateAssignment> AssignmentsForTeam(int? teamId) => teamId is int tid
         ? _allAssignments.Where(a => a.TeamId == tid).ToList()
         : new();
 
@@ -149,11 +223,20 @@ else
     private int? _newPersonId;
     private int? _newWorkstreamId;
 
+    // Text filters (case-insensitive "contains") applied to the currently
+    // loaded rows, mirroring the Global Timeline filter pattern.
+    private string _filterTeam = string.Empty;
+    private string _filterTemplate = string.Empty;
+    private string _filterWorkstream = string.Empty;
+    private string _filterRole = string.Empty;
+    private string _filterPerson = string.Empty;
+
     // Frozen (sticky) leading-column widths and the "collapse column" toggles
     // that let the user hide the optional Template/Workstream columns to
     // free up horizontal space for the scrolling month data.
     private bool _showTemplateColumn = true;
     private bool _showWorkstreamColumn = true;
+    private bool _showPhaseOverlay;
     private const int TeamColWidth = 140;
     private const int TemplateColWidth = 100;
     private const int WorkstreamColWidth = 120;
@@ -166,13 +249,17 @@ else
     private int RoleLeft => WorkstreamLeft + (_showWorkstreamColumn ? WorkstreamColWidth : 0);
     private int PersonLeft => RoleLeft + RoleColWidth;
     private const int MonthColWidth = 56;
+    private const int HeaderRowHeight = 30;
+
+    private int FrozenColumnCount => 3 + (_showTemplateColumn ? 1 : 0) + (_showWorkstreamColumn ? 1 : 0);
+    private int TotalFrozenWidth => PersonLeft + PersonColWidth;
 
     // table-layout:fixed only reliably fixes each column's rendered width
     // (rather than falling back to content-based auto sizing, which is what
     // caused the gaps/overlaps between the frozen columns and the month
     // data) when the <table> itself has an explicit, non-auto width equal
     // to the sum of all its column widths.
-    private int TotalGridWidth => PersonLeft + PersonColWidth + (_monthHeaders.Count * MonthColWidth);
+    private int TotalGridWidth => TotalFrozenWidth + (_monthHeaders.Count * MonthColWidth);
 
     protected override async Task OnInitializedAsync()
     {
@@ -183,11 +270,8 @@ else
         _scenarios = await Db.PlanningScenarios.Where(s => s.ProgramId == _programId).ToListAsync();
         _scenarioId = _scenarios.FirstOrDefault(s => s.IsBaseline)?.Id ?? _scenarios.First().Id;
 
-        _teams = await Db.Teams.Where(t => t.ProgramId == _programId).OrderBy(t => t.Name).ToListAsync();
-        _roles = await Db.Roles.Where(r => r.ProgramId == _programId).OrderBy(r => r.Name).ToListAsync();
-        _people = await Db.People.Where(p => p.ProgramId == _programId).OrderBy(p => p.DisplayName).ToListAsync();
-        _workstreams = await Db.Workstreams.Where(w => w.ProgramId == _programId).OrderBy(w => w.Name).ToListAsync();
-        _allAssignments = await Db.TeamTemplateAssignments.Include(a => a.Template).ToListAsync();
+        await ReloadLookupsAsync();
+        _templates = await Db.Templates.Where(t => t.ProgramId == _programId).Include(t => t.Phases).ToListAsync();
 
         var monthCount = WmsResourcePlanner.Application.Services.HorizonService.MonthSpan(_horizonStart, _horizonEnd);
         for (var i = 0; i < monthCount; i++)
@@ -198,12 +282,47 @@ else
         await LoadAsync();
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JS.InvokeVoidAsync("wmsGridNav.init", _gridContainerId);
+        }
+    }
+
+    private async Task ReloadLookupsAsync()
+    {
+        _teams = await Db.Teams.Where(t => t.ProgramId == _programId).OrderBy(t => t.Name).ToListAsync();
+        _roles = await Db.Roles.Where(r => r.ProgramId == _programId).OrderBy(r => r.Name).ToListAsync();
+        _people = await Db.People.Where(p => p.ProgramId == _programId).OrderBy(p => p.DisplayName).ToListAsync();
+        _workstreams = await Db.Workstreams.Where(w => w.ProgramId == _programId).OrderBy(w => w.Name).ToListAsync();
+        _allAssignments = await Db.TeamTemplateAssignments.Include(a => a.Template).ToListAsync();
+    }
+
     private async Task LoadAsync()
     {
         _loading = true;
         _rows = await GridService.GetGridAsync(_scenarioId, _horizonStart, _horizonEnd);
         _warnings = await ValidationService.GetWarningsAsync(_scenarioId, _horizonStart, _horizonEnd);
         _loading = false;
+    }
+
+    private List<ResourcePlanGridRow> FilteredRows()
+    {
+        IEnumerable<ResourcePlanGridRow> query = _rows;
+
+        if (!string.IsNullOrWhiteSpace(_filterTeam))
+            query = query.Where(r => r.TeamName.Contains(_filterTeam, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(_filterTemplate))
+            query = query.Where(r => (r.TemplateName ?? "").Contains(_filterTemplate, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(_filterWorkstream))
+            query = query.Where(r => (r.WorkstreamName ?? "").Contains(_filterWorkstream, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(_filterRole))
+            query = query.Where(r => r.RoleName.Contains(_filterRole, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(_filterPerson))
+            query = query.Where(r => (r.PersonName ?? "").Contains(_filterPerson, StringComparison.OrdinalIgnoreCase));
+
+        return query.ToList();
     }
 
     private string? GetWarning(ResourcePlanRowKey key, int year, int month)
@@ -232,35 +351,178 @@ else
         await LoadAsync();
     }
 
-    private void AddRowAsync()
+    private async Task OnNewRowCellChangedAsync(int year, int month, object? value)
     {
         if (_newTeamId is null || _newRoleId is null)
         {
-            _status = "Team and Role are required.";
+            _status = "Select a Team and Role before entering an FTE value.";
             return;
         }
 
-        var key = new ResourcePlanRowKey(_scenarioId, _newTeamId.Value, _newAssignmentId, null, _newWorkstreamId, null, _newRoleId.Value, _newPersonId);
-        var team = _teams.First(t => t.Id == _newTeamId.Value);
-        var role = _roles.First(r => r.Id == _newRoleId.Value);
-        var person = _newPersonId is int pid ? _people.FirstOrDefault(p => p.Id == pid) : null;
-        var assignment = _newAssignmentId is int aid ? _allAssignments.FirstOrDefault(a => a.Id == aid) : null;
-        var workstream = _newWorkstreamId is int wid ? _workstreams.FirstOrDefault(w => w.Id == wid) : null;
+        var text = value?.ToString();
+        var fte = string.IsNullOrWhiteSpace(text) ? 0m : decimal.Parse(text);
+        if (fte == 0m) return;
 
-        // Row is transient (not yet persisted) until the user enters a
-        // non-zero month value, at which point UpdateCellAsync creates the
-        // underlying ResourcePlanLine.
-        _rows.Add(new ResourcePlanGridRow
-        {
-            Key = key,
-            TeamName = team.Name,
-            TemplateName = assignment?.Template?.Name,
-            WorkstreamName = workstream?.Name,
-            RoleName = role.Name,
-            PersonName = person?.DisplayName,
-            Months = _monthHeaders.Select(m => new MonthlyValue(m.Year, m.Month, 0m)).ToList()
-        });
+        var key = new ResourcePlanRowKey(_scenarioId, _newTeamId.Value, _newAssignmentId, null, _newWorkstreamId, null, _newRoleId.Value, _newPersonId);
+        await GridService.UpdateCellAsync(_programId, key, _horizonStart, _horizonEnd, year, month, fte);
+        _status = $"Added new row, saved at {DateTime.Now:T}";
 
         _newTeamId = null; _newAssignmentId = null; _newRoleId = null; _newPersonId = null; _newWorkstreamId = null;
+        await LoadAsync();
+    }
+
+    // ---- Inline editing of the leading (frozen) columns for existing rows.
+    // Each handler re-points the row's underlying ResourcePlanLines to the
+    // newly chosen value via UpdateRowContextAsync. Selecting "+ Add new..."
+    // creates the entity on the fly via LookupService (SPEC.md section 5:
+    // "learn as the user works").
+
+    private async Task OnRowTeamChangedAsync(ResourcePlanGridRow row, ChangeEventArgs e)
+    {
+        var (proceed, teamId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreateTeamAsync(_programId, name), t => t.Id);
+        if (!proceed || teamId is null) { StateHasChanged(); return; }
+        await GridService.UpdateRowContextAsync(row.Key, teamId.Value, row.Key.TeamTemplateAssignmentId, row.Key.WorkstreamId, row.Key.RoleId, row.Key.PersonId);
+        _status = $"Saved at {DateTime.Now:T}";
+        await LoadAsync();
+    }
+
+    private async Task OnRowAssignmentChangedAsync(ResourcePlanGridRow row, ChangeEventArgs e)
+    {
+        var raw = e.Value?.ToString();
+        int? assignmentId = string.IsNullOrEmpty(raw) ? null : int.Parse(raw);
+        await GridService.UpdateRowContextAsync(row.Key, row.Key.TeamId, assignmentId, row.Key.WorkstreamId, row.Key.RoleId, row.Key.PersonId);
+        _status = $"Saved at {DateTime.Now:T}";
+        await LoadAsync();
+    }
+
+    private async Task OnRowWorkstreamChangedAsync(ResourcePlanGridRow row, ChangeEventArgs e)
+    {
+        var (proceed, workstreamId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreateWorkstreamAsync(_programId, name), w => w.Id);
+        if (!proceed) { StateHasChanged(); return; }
+        await GridService.UpdateRowContextAsync(row.Key, row.Key.TeamId, row.Key.TeamTemplateAssignmentId, workstreamId, row.Key.RoleId, row.Key.PersonId);
+        _status = $"Saved at {DateTime.Now:T}";
+        await LoadAsync();
+    }
+
+    private async Task OnRowRoleChangedAsync(ResourcePlanGridRow row, ChangeEventArgs e)
+    {
+        var (proceed, roleId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreateRoleAsync(_programId, name), r => r.Id);
+        if (!proceed || roleId is null) { StateHasChanged(); return; }
+        await GridService.UpdateRowContextAsync(row.Key, row.Key.TeamId, row.Key.TeamTemplateAssignmentId, row.Key.WorkstreamId, roleId.Value, row.Key.PersonId);
+        _status = $"Saved at {DateTime.Now:T}";
+        await LoadAsync();
+    }
+
+    private async Task OnRowPersonChangedAsync(ResourcePlanGridRow row, ChangeEventArgs e)
+    {
+        var (proceed, personId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreatePersonAsync(_programId, name), p => p.Id);
+        if (!proceed) { StateHasChanged(); return; }
+        await GridService.UpdateRowContextAsync(row.Key, row.Key.TeamId, row.Key.TeamTemplateAssignmentId, row.Key.WorkstreamId, row.Key.RoleId, personId);
+        _status = $"Saved at {DateTime.Now:T}";
+        await LoadAsync();
+    }
+
+    // ---- Inline editing for the always-present blank "add row" at the
+    // bottom of the grid (SPEC.md section 4: "quick-add rows").
+
+    private async Task OnNewTeamChangedAsync(ChangeEventArgs e)
+    {
+        var (proceed, teamId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreateTeamAsync(_programId, name), t => t.Id);
+        if (proceed) _newTeamId = teamId;
+    }
+
+    private async Task OnNewWorkstreamChangedAsync(ChangeEventArgs e)
+    {
+        var (proceed, workstreamId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreateWorkstreamAsync(_programId, name), w => w.Id);
+        if (proceed) _newWorkstreamId = workstreamId;
+    }
+
+    private async Task OnNewRoleChangedAsync(ChangeEventArgs e)
+    {
+        var (proceed, roleId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreateRoleAsync(_programId, name), r => r.Id);
+        if (proceed) _newRoleId = roleId;
+    }
+
+    private async Task OnNewPersonChangedAsync(ChangeEventArgs e)
+    {
+        var (proceed, personId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreatePersonAsync(_programId, name), p => p.Id);
+        if (proceed) _newPersonId = personId;
+    }
+
+    /// <summary>
+    /// Shared helper for every editable lookup dropdown. "__new__" prompts
+    /// for a name (via the browser's native prompt()) and creates the
+    /// entity through LookupService (case-insensitive get-or-create),
+    /// refreshing the cached lookup lists; any other value parses as the
+    /// selected entity's id; empty means "none" (null). Proceed is false
+    /// only when the user cancels the "+ Add new..." prompt, so callers can
+    /// leave the row unchanged instead of clearing the field to "none".
+    /// </summary>
+    private async Task<(bool Proceed, int? Id)> ResolveOrCreateAsync<T>(string? raw, Func<string, Task<T>> createAsync, Func<T, int> idOf)
+    {
+        if (raw == "__new__")
+        {
+            var name = await JS.InvokeAsync<string?>("prompt", "New name:");
+            if (string.IsNullOrWhiteSpace(name)) return (false, null);
+            var created = await createAsync(name.Trim());
+            await ReloadLookupsAsync();
+            return (true, idOf(created));
+        }
+
+        return (true, string.IsNullOrEmpty(raw) ? null : int.Parse(raw));
+    }
+
+    // ---- Optional Template/Phase overlay shown fixed at the top of the
+    // grid so template and phase timelines can be visually compared against
+    // the resource plan underneath, regardless of vertical scroll position.
+
+    private static readonly string[] OverlayPalette =
+    {
+        "#2b6cb0", "#c05621", "#2f855a", "#6b46c1", "#b7791f", "#c53030", "#2c7a7b", "#4a5568"
+    };
+
+    private static string ColorFor(string name)
+    {
+        var hash = 0;
+        foreach (var c in name) hash = hash * 31 + c;
+        return OverlayPalette[Math.Abs(hash) % OverlayPalette.Length];
+    }
+
+    private sealed record OverlayCell(string Label, string Color);
+
+    private static bool Overlaps(DateOnly? start, DateOnly? end, DateOnly monthStart, DateOnly monthEnd) =>
+        start is not null && end is not null && start.Value <= monthEnd && end.Value >= monthStart;
+
+    private OverlayCell? TemplateCellFor(DateOnly month)
+    {
+        var monthStart = new DateOnly(month.Year, month.Month, 1);
+        var monthEnd = monthStart.AddMonths(1).AddDays(-1);
+
+        var match = _templates.FirstOrDefault(t =>
+        {
+            var start = t.StartDate ?? t.Phases.Select(p => (DateOnly?)p.StartDate).OrderBy(d => d).FirstOrDefault();
+            var end = t.EndDate ?? t.Phases.Select(p => (DateOnly?)p.EndDate).OrderByDescending(d => d).FirstOrDefault();
+            return Overlaps(start, end, monthStart, monthEnd);
+        });
+
+        return match is null ? null : new OverlayCell(match.Name, ColorFor(match.Name));
+    }
+
+    private OverlayCell? PhaseCellFor(DateOnly month)
+    {
+        var monthStart = new DateOnly(month.Year, month.Month, 1);
+        var monthEnd = monthStart.AddMonths(1).AddDays(-1);
+
+        foreach (var t in _templates)
+        {
+            var phase = t.Phases.FirstOrDefault(p => Overlaps(p.StartDate, p.EndDate, monthStart, monthEnd));
+            if (phase is not null)
+            {
+                return new OverlayCell($"{t.Name}: {phase.Name}", ColorFor(phase.Name));
+            }
+        }
+
+        return null;
     }
 }
+

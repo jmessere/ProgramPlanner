@@ -146,6 +146,36 @@ table.data-grid.frozen-grid thead tr:first-child th {
     box-shadow: 2px 0 4px -2px rgba(0, 0, 0, 0.35);
 }
 
+/* Fixed row height on thead cells so the overlay rows' hardcoded "top"
+   pixel offsets (see ResourcePlan.razor HeaderRowHeight) always line up
+   exactly beneath the row(s) above them. */
+.frozen-grid thead th, .frozen-grid thead td {
+    height: 30px;
+}
+
+.frozen-grid .overlay-cell {
+    font-size: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    padding-left: 4px;
+}
+
+.frozen-grid .overlay-label {
+    font-weight: 600;
+    color: #495057;
+}
+
+.frozen-grid .new-row td {
+    background: #fbfdff;
+}
+
+.frozen-grid .new-row.frozen-col,
+.frozen-grid .new-row .frozen-col {
+    background: #fbfdff;
+}
+
 table.data-grid input, table.data-grid select {
     width: 100%;
     box-sizing: border-box;

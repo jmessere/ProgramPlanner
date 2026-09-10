@@ -165,6 +165,71 @@ public class ResourcePlanGridService
         });
     }
 
+    /// <summary>
+    /// Re-points every ResourcePlanLine that makes up a grid row to a new
+    /// Team/Template-assignment/Workstream/Role/Person combination, so the
+    /// leading (frozen) columns can be edited in place like a spreadsheet.
+    /// If the new combination collides with another existing row, the lines
+    /// simply merge under that row key (ExpandToMonthly sums FTE for lines
+    /// that share a key), which is safe and non-destructive.
+    /// </summary>
+    public async Task UpdateRowContextAsync(
+        ResourcePlanRowKey oldKey,
+        int newTeamId, int? newAssignmentId, int? newWorkstreamId, int newRoleId, int? newPersonId,
+        CancellationToken ct = default)
+    {
+        var lines = await _db.ResourcePlanLines
+            .Where(r => r.ScenarioId == oldKey.ScenarioId
+                && r.TeamId == oldKey.TeamId
+                && r.TeamTemplateAssignmentId == oldKey.TeamTemplateAssignmentId
+                && r.TemplatePhaseId == oldKey.TemplatePhaseId
+                && r.WorkstreamId == oldKey.WorkstreamId
+                && r.FocusAreaId == oldKey.FocusAreaId
+                && r.RoleId == oldKey.RoleId
+                && r.PersonId == oldKey.PersonId)
+            .ToListAsync(ct);
+
+        if (lines.Count == 0) return;
+
+        var original = lines.Select(l => (
+            l.Id, l.TeamId, l.TeamTemplateAssignmentId, l.WorkstreamId, l.RoleId, l.PersonId)).ToList();
+
+        foreach (var line in lines)
+        {
+            line.TeamId = newTeamId;
+            line.TeamTemplateAssignmentId = newAssignmentId;
+            line.WorkstreamId = newWorkstreamId;
+            line.RoleId = newRoleId;
+            line.PersonId = newPersonId;
+        }
+
+        await _db.SaveChangesAsync(ct);
+
+        await _audit.RecordAsync(
+            "ResourcePlanLine",
+            newTeamId,
+            "GridRowContextEdit",
+            new { oldKey.TeamId, oldKey.TeamTemplateAssignmentId, oldKey.WorkstreamId, oldKey.RoleId, oldKey.PersonId },
+            new { newTeamId, newAssignmentId, newWorkstreamId, newRoleId, newPersonId },
+            ct);
+
+        _undo.Push("Resource Plan row edit", async () =>
+        {
+            var ids = original.Select(o => o.Id).ToList();
+            var current = await _db.ResourcePlanLines.Where(l => ids.Contains(l.Id)).ToListAsync();
+            foreach (var line in current)
+            {
+                var o = original.First(x => x.Id == line.Id);
+                line.TeamId = o.TeamId;
+                line.TeamTemplateAssignmentId = o.TeamTemplateAssignmentId;
+                line.WorkstreamId = o.WorkstreamId;
+                line.RoleId = o.RoleId;
+                line.PersonId = o.PersonId;
+            }
+            await _db.SaveChangesAsync();
+        });
+    }
+
     private static List<MonthlyValue> BuildBlankMonths(DateOnly start, DateOnly end)
     {
         var months = new List<MonthlyValue>();
