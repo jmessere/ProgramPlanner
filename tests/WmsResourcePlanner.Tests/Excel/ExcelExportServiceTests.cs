@@ -7,6 +7,36 @@ namespace WmsResourcePlanner.Tests.Excel;
 
 public class ExcelExportServiceTests
 {
+    /// <summary>Locates the Resource Plan table's header row within the
+    /// merged "Resource Plan" sheet (Template Plan table sits above it).</summary>
+    private static int FindResourcePlanHeaderRow(ClosedXML.Excel.IXLWorksheet ws)
+    {
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? 0;
+        for (var r = 1; r <= lastRow; r++)
+        {
+            if (ws.Cell(r, 1).GetString() == "Template" && ws.Cell(r, 3).GetString() == "Workstream")
+            {
+                return r;
+            }
+        }
+        throw new InvalidOperationException("Resource Plan header row not found.");
+    }
+
+    /// <summary>Locates the Template Plan table's header row within the
+    /// merged "Resource Plan" sheet.</summary>
+    private static int FindTemplatePlanHeaderRow(ClosedXML.Excel.IXLWorksheet ws)
+    {
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? 0;
+        for (var r = 1; r <= lastRow; r++)
+        {
+            if (ws.Cell(r, 1).GetString() == "Template" && ws.Cell(r, 3).GetString() == "Notes")
+            {
+                return r;
+            }
+        }
+        throw new InvalidOperationException("Template Plan header row not found.");
+    }
+
     [Fact]
     public async Task ExportAsync_ProducesWorkbookWithExpectedSheetsAndData()
     {
@@ -51,14 +81,16 @@ public class ExcelExportServiceTests
         var sheetNames = workbook.Worksheets.Select(w => w.Name).ToList();
         Assert.Contains("Instructions", sheetNames);
         Assert.Contains("Resource Plan", sheetNames);
-        Assert.Contains("Template Plan", sheetNames);
+        Assert.DoesNotContain("Template Plan", sheetNames); // merged into "Resource Plan"
         Assert.Contains("Reference Data", sheetNames);
         Assert.Contains("Summary", sheetNames);
 
         var rpSheet = workbook.Worksheet("Resource Plan");
-        Assert.Equal("Jane Smith", rpSheet.Cell(2, 7).GetString());
+        var headerRow = FindResourcePlanHeaderRow(rpSheet);
+        var dataRow = headerRow + 1;
+        Assert.Equal("Jane Smith", rpSheet.Cell(dataRow, 7).GetString());
         // Jan column is column 10 (9 fixed headers + 1); value should be 1.0
-        Assert.Equal(1.0, rpSheet.Cell(2, 10).GetDouble());
+        Assert.Equal(1.0, rpSheet.Cell(dataRow, 10).GetDouble());
     }
 
     [Fact]
@@ -94,7 +126,7 @@ public class ExcelExportServiceTests
     }
 
     [Fact]
-    public async Task ExportAsync_TemplatePlanSheet_HasNoTeamColumnAndMarksActiveMonths()
+    public async Task ExportAsync_TemplatePlanTable_HasNoTeamColumnAndMarksActiveMonthsAlignedWithResourcePlan()
     {
         using var db = TestDbFactory.Create();
         var program = new Program { Name = "P" };
@@ -118,26 +150,34 @@ public class ExcelExportServiceTests
         using var stream = new MemoryStream(bytes);
         using var workbook = new ClosedXML.Excel.XLWorkbook(stream);
 
-        var tpSheet = workbook.Worksheet("Template Plan");
-        var headers = Enumerable.Range(1, 3).Select(c => tpSheet.Cell(1, c).GetString()).ToList();
+        // Template Plan is now a table at the top of the merged "Resource Plan" sheet.
+        var rpSheet = workbook.Worksheet("Resource Plan");
+        var templateHeaderRow = FindTemplatePlanHeaderRow(rpSheet);
+        var headers = Enumerable.Range(1, 3).Select(c => rpSheet.Cell(templateHeaderRow, c).GetString()).ToList();
         Assert.DoesNotContain("Team", headers);
         Assert.DoesNotContain("Start Date", headers);
         Assert.DoesNotContain("End Date", headers);
         Assert.Equal(new[] { "Template", "Phase", "Notes" }, headers);
 
-        Assert.Equal("Std Rollout", tpSheet.Cell(2, 1).GetString());
-        Assert.Equal("Design", tpSheet.Cell(2, 2).GetString());
+        var dataRow = templateHeaderRow + 1;
+        Assert.Equal("Std Rollout", rpSheet.Cell(dataRow, 1).GetString());
+        Assert.Equal("Design", rpSheet.Cell(dataRow, 2).GetString());
 
-        // Month columns start at 4; Feb/Mar/Apr 2027 should be marked "X",
-        // Jan and May should not.
-        Assert.Equal("", tpSheet.Cell(2, 4).GetString()); // Jan 2027
-        Assert.Equal("X", tpSheet.Cell(2, 5).GetString()); // Feb 2027
-        Assert.Equal("X", tpSheet.Cell(2, 6).GetString()); // Mar 2027
-        Assert.Equal("X", tpSheet.Cell(2, 7).GetString()); // Apr 2027
-        Assert.Equal("", tpSheet.Cell(2, 8).GetString()); // May 2027
+        // Month columns start at column 10 (RpFirstMonthCol), the same
+        // column the Resource Plan table's months start at below, so the
+        // two tables' timelines line up. Feb/Mar/Apr 2027 should be marked
+        // "X", Jan and May should not.
+        Assert.Equal("", rpSheet.Cell(dataRow, 10).GetString()); // Jan 2027
+        Assert.Equal("X", rpSheet.Cell(dataRow, 11).GetString()); // Feb 2027
+        Assert.Equal("X", rpSheet.Cell(dataRow, 12).GetString()); // Mar 2027
+        Assert.Equal("X", rpSheet.Cell(dataRow, 13).GetString()); // Apr 2027
+        Assert.Equal("", rpSheet.Cell(dataRow, 14).GetString()); // May 2027
 
-        Assert.True(tpSheet.AutoFilter.IsEnabled);
-        Assert.True(tpSheet.ConditionalFormats.Any());
+        // Both tables' month columns must be the exact same columns.
+        var resourcePlanHeaderRow = FindResourcePlanHeaderRow(rpSheet);
+        Assert.Equal(rpSheet.Cell(templateHeaderRow, 10).GetDateTime(), rpSheet.Cell(resourcePlanHeaderRow, 10).GetDateTime());
+
+        Assert.True(rpSheet.ConditionalFormats.Any());
     }
 
     [Fact]
@@ -174,8 +214,9 @@ public class ExcelExportServiceTests
 
         // 12 months (Jan-Dec 2027) starting at column 10 -> Row Total FTE is column 22.
         var rpSheet = workbook.Worksheet("Resource Plan");
-        Assert.Equal("Row Total FTE", rpSheet.Cell(1, 22).GetString());
-        Assert.True(rpSheet.Cell(2, 22).HasFormula);
+        var headerRow = FindResourcePlanHeaderRow(rpSheet);
+        Assert.Equal("Row Total FTE", rpSheet.Cell(headerRow, 22).GetString());
+        Assert.True(rpSheet.Cell(headerRow + 1, 22).HasFormula);
     }
 
     [Fact]
@@ -236,10 +277,11 @@ public class ExcelExportServiceTests
 
         // Resource Plan sheet should carry the new hidden helper columns.
         var rpSheet = workbook.Worksheet("Resource Plan");
-        var headerRow1 = rpSheet.Row(1).CellsUsed().Select(c => c.GetString()).ToList();
-        Assert.Contains("Effective Pool", headerRow1);
-        Assert.Contains("Effective Vendor", headerRow1);
-        Assert.Contains("Effective Hourly Rate", headerRow1);
+        var headerRow = FindResourcePlanHeaderRow(rpSheet);
+        var headerRowValues = rpSheet.Row(headerRow).CellsUsed().Select(c => c.GetString()).ToList();
+        Assert.Contains("Effective Pool", headerRowValues);
+        Assert.Contains("Effective Vendor", headerRowValues);
+        Assert.Contains("Effective Hourly Rate", headerRowValues);
 
         // Force ClosedXML's formula engine to evaluate every formula in the
         // workbook so a structurally-broken formula (mismatched parens,

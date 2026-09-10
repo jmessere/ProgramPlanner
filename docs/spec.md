@@ -1961,11 +1961,18 @@ Recommended:
 
 ```text
 Instructions
-Resource Plan
-Template Plan
+Resource Plan (Template Plan overlay table + Resource Plan table, same sheet)
 Reference Data
 Summary
 ```
+
+The Template Plan table and the Resource Plan table live on a single
+"Resource Plan" sheet - Template Plan first (top), Resource Plan directly
+below it - so a planner can see the template phase overlay lined up with
+the plan data while entering/reviewing FTE. Both tables share the same
+month columns (fixed label columns end at the same column, month columns
+start right after), so the two timelines always line up visually. See
+§73 for the details of the merged layout.
 
 Avoid dozens of worksheets.
 
@@ -1981,8 +1988,7 @@ Example:
 
 Explain:
 
-* Resource Plan
-* Template Plan
+* Resource Plan (including the Template Plan overlay table at its top)
 * Reference Data
 * Summary
 * FTE conventions
@@ -1992,13 +1998,20 @@ Do not mention application compatibility.
 
 ---
 
-# 73. Template Plan Worksheet
+# 73. Resource Plan Worksheet (Template Plan overlay + Resource Plan table)
 
-Provide a human-friendly, filterable schedule table showing Templates and
-their Phases only. Team-to-Template assignments are **not** shown on this
-sheet - a Team's association with a Template is already implied by the
-Team values present on the Resource Plan sheet, so repeating it here would
-be redundant.
+The "Resource Plan" sheet holds two tables, stacked vertically, sharing
+the same month columns:
+
+1. **Template Plan** (top): a human-friendly, filterable schedule table
+   showing Templates and their Phases only. Team-to-Template assignments
+   are **not** shown on this table - a Team's association with a Template
+   is already implied by the Team values present on the Resource Plan
+   table below it, so repeating it here would be redundant.
+2. **Resource Plan** (below): the row-per-planning-line grid described
+   later in this section.
+
+## Template Plan table
 
 Columns:
 
@@ -2023,8 +2036,13 @@ re-importing adjusts the underlying Template Phase accordingly. A row with
 no "X" marks at all is flagged as an error (a phase must have at least one
 active month marked).
 
-The sheet supports Excel's standard AutoFilter column-header dropdowns for
-filtering by Template or Phase.
+The Template Plan table's month columns start at the same column as the
+Resource Plan table's month columns below it, so the two timelines line
+up. Because Excel only supports one AutoFilter range per worksheet, and
+the two tables now share a sheet, the AutoFilter is scoped to the
+Resource Plan table (the primary data-entry grid); the Template Plan table
+keeps its Gantt-bar-like conditional formatting but not its own filter
+dropdowns.
 
 Example (Jan-Jun 2027 shown):
 
@@ -2032,6 +2050,18 @@ Example (Jan-Jun 2027 shown):
 | -------- | ------ | ----- | ------ | ------ | ------ | ------ | ------ | ------ |
 | T1       | Design |       | X      | X      | X      |        |        |        |
 | T1       | Build  |       |        |        |        | X      | X      | X      |
+
+## Resource Plan table
+
+Directly below the Template Plan table (separated by blank rows and its
+own section title/header row), one row per planning line, filterable via
+the standard AutoFilter column-header dropdowns. The sheet is frozen
+through the Resource Plan table's header row (not just row 1) and through
+its fixed label columns, so the Template Plan overlay above and the
+row labels on the left both stay visible while scrolling through plan
+data - this is what gives the planner the "template overlay while
+planning" view.
+
 
 ---
 
@@ -2756,7 +2786,7 @@ Do not defer Gantt functionality until the end.
 Build:
 
 * Five-year Resource Plan timeline
-* Template Plan
+* Template Plan overlay (merged onto the Resource Plan sheet)
 * Reference Data
 * Summary
 * Monthly expansion/consolidation

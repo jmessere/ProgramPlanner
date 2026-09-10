@@ -55,10 +55,9 @@ public class ExcelExportService
         using var workbook = new XLWorkbook();
 
         BuildInstructionsSheet(workbook);
-        BuildResourcePlanSheet(workbook, monthly, sample, months);
-        await BuildTemplatePlanSheetAsync(workbook, months, ct);
+        var rpLayout = await BuildResourcePlanSheetAsync(workbook, monthly, sample, months, ct);
         var refCols = await BuildReferenceDataSheetAsync(workbook, pools, ct);
-        BuildSummarySheet(workbook, months, lines, pools, refCols);
+        BuildSummarySheet(workbook, months, lines, pools, refCols, rpLayout);
 
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
@@ -71,113 +70,68 @@ public class ExcelExportService
         ws.Cell(1, 1).Value = "Resource Plan Workbook";
         ws.Cell(1, 1).Style.Font.SetBold().Font.SetFontSize(16);
         ws.Cell(3, 1).Value = "This workbook contains the current resource plan across a multi-year timeline.";
-        ws.Cell(4, 1).Value = "Resource Plan: one row per planning line, filterable via the column header dropdowns. Monthly columns hold FTE (0.25 = quarter FTE, 1.0 = one FTE).";
+        ws.Cell(4, 1).Value = "Resource Plan: a single sheet with two tables sharing the same month columns so they line up for at-a-glance planning. The Template Plan table (top) shows each template phase's active months as an \"X\" (colored like a Gantt bar). The Resource Plan table (below) is the row-per-planning-line grid, filterable via the column header dropdowns, with monthly FTE (0.25 = quarter FTE, 1.0 = one FTE). Both tables' month columns are frozen alongside the Resource Plan header row, so the template overlay and the row headers stay visible while you scroll through plan data.";
         ws.Cell(5, 1).Value = "A populated Person means a named allocation. A blank Person means open (unfilled) demand; its Pool column names the proposed sourcing pool.";
-        ws.Cell(6, 1).Value = "Template Plan: template phases with their date ranges, filterable, and a monthly timeline where an \"X\" marks the phase's active months (colored like a Gantt bar). Team assignments are not shown here - they are implied by the Team values already present on the Resource Plan sheet.";
+        ws.Cell(6, 1).Value = "Template Plan table: template phases with a monthly timeline where an \"X\" marks the phase's active months; the X marks are the sole source of truth for a phase's dates. Team assignments are not shown here - they are implied by the Team values already present in the Resource Plan table below.";
         ws.Cell(7, 1).Value = "Reference Data: master lists (people, teams, roles, templates, workstreams, etc.).";
         ws.Cell(8, 1).Value = "Summary: filled/open FTE by month, gaps by role/team/template, overallocated people, and Pool/Vendor cost & headcount rollups by quarter and year (all live formulas).";
         ws.Columns().AdjustToContents();
     }
 
-    private void BuildResourcePlanSheet(
+    /// <summary>Row positions of the Resource Plan table within the merged
+    /// "Resource Plan" sheet (which now also holds the Template Plan table
+    /// above it), captured while building that sheet so the Summary sheet
+    /// can build live formula ranges against the right rows instead of
+    /// assuming the Resource Plan table starts at row 1/2.</summary>
+    private readonly record struct ResourcePlanSheetLayout(int HeaderRow, int FirstDataRow, int LastDataRow);
+
+    /// <summary>
+    /// Builds the single "Resource Plan" sheet: the Template Plan table
+    /// first (template phases with an "X" marking each phase's active
+    /// months), then the Resource Plan table (one row per planning line)
+    /// directly below it. Both tables share the same month columns (fixed
+    /// headers end at the same column, months start right after) so a
+    /// planner can see the template overlay lined up with the plan data
+    /// while entering/reviewing FTE. Team assignments are not repeated on
+    /// the Template Plan table - they are already implied by the Team
+    /// values in the Resource Plan table below.
+    /// </summary>
+    private async Task<ResourcePlanSheetLayout> BuildResourcePlanSheetAsync(
         XLWorkbook workbook,
         Dictionary<Application.DTOs.ResourcePlanRowKey, List<Application.DTOs.MonthlyValue>> monthly,
         Dictionary<Application.DTOs.ResourcePlanRowKey, ResourcePlanLine> sample,
-        List<DateOnly> months)
+        List<DateOnly> months,
+        CancellationToken ct)
     {
         var ws = workbook.Worksheets.Add("Resource Plan");
 
         string[] fixedHeaders = { "Template", "Phase", "Workstream", "Focus Area", "Team", "Role", "Person", "Pool", "Notes" };
-        for (var i = 0; i < fixedHeaders.Length; i++)
+        var firstMonthCol = RpFirstMonthCol; // shared by both tables so months align
+
+        void WriteMonthHeaders(int headerRow)
         {
-            ws.Cell(1, i + 1).Value = fixedHeaders[i];
-        }
-
-        var firstMonthCol = fixedHeaders.Length + 1;
-        for (var i = 0; i < months.Count; i++)
-        {
-            var cell = ws.Cell(1, firstMonthCol + i);
-            cell.Value = months[i].ToDateTime(TimeOnly.MinValue);
-            cell.Style.DateFormat.Format = "mmm-yy";
-            cell.Style.Font.SetBold();
-        }
-
-        ws.Row(1).Style.Font.SetBold();
-        ws.SheetView.FreezeRows(1);
-        ws.SheetView.FreezeColumns(fixedHeaders.Length);
-
-        var row = 2;
-        foreach (var (key, values) in monthly.OrderBy(m => sample[m.Key].Team?.Name).ThenBy(m => sample[m.Key].Role?.Name))
-        {
-            var s = sample[key];
-            var templateName = s.TeamTemplateAssignment?.Template?.Name ?? s.TemplatePhase?.Template?.Name;
-
-            ws.Cell(row, 1).Value = templateName;
-            ws.Cell(row, 2).Value = s.TemplatePhase?.Name;
-            ws.Cell(row, 3).Value = s.Workstream?.Name;
-            ws.Cell(row, 4).Value = s.FocusArea?.Name;
-            ws.Cell(row, 5).Value = s.Team?.Name;
-            ws.Cell(row, 6).Value = s.Role?.Name;
-            ws.Cell(row, 7).Value = s.Person?.DisplayName;
-            // Pool only shown for open demand rows - once a Person is named,
-            // their own Resource Pool is the implicit source (see Reference
-            // Data > People for that mapping) so showing it here too could
-            // disagree with the Person's actual pool after re-import.
-            ws.Cell(row, 8).Value = s.Person is null ? s.ResourcePool?.Name : null;
-            ws.Cell(row, 9).Value = s.Notes;
-
-            for (var i = 0; i < values.Count; i++)
+            for (var i = 0; i < months.Count; i++)
             {
-                if (values[i].Fte != 0m)
-                {
-                    ws.Cell(row, firstMonthCol + i).Value = values[i].Fte;
-                }
+                var cell = ws.Cell(headerRow, firstMonthCol + i);
+                cell.Value = months[i].ToDateTime(TimeOnly.MinValue);
+                cell.Style.DateFormat.Format = "mmm-yy";
+                cell.Style.Font.SetBold();
             }
-
-            row++;
         }
 
-        ws.Columns(1, fixedHeaders.Length).AdjustToContents();
+        // ---- Template Plan table (top) ----
+        var row = 1;
+        ws.Cell(row, 1).Value = "Template Plan";
+        ws.Cell(row, 1).Style.Font.SetBold().Font.SetFontSize(13);
+        row++;
 
-        // AutoFilter (rather than a structured Excel Table/ListObject) gives
-        // every column - including the date-valued month headers - the
-        // standard filter-dropdown UX the user asked for, without the
-        // restrictions a ListObject would impose here (unique text-only
-        // headers, no coexisting frozen-pane quirks, etc.).
-        if (row > 2)
-        {
-            ws.Range(1, 1, row - 1, firstMonthCol + months.Count - 1).SetAutoFilter();
-        }
-    }
-
-    private async Task BuildTemplatePlanSheetAsync(XLWorkbook workbook, List<DateOnly> months, CancellationToken ct)
-    {
-        var ws = workbook.Worksheets.Add("Template Plan");
-
-        // Team assignments are intentionally not shown here (per product
-        // direction): a Team's association with a Template is already
-        // implied by the Team values on the Resource Plan sheet, so this
-        // sheet only needs to show Templates and their Phases. Start/End
-        // Date columns are intentionally omitted too: the monthly "X"
-        // marks are the single source of truth for a phase's dates (both
-        // on export and on re-import), so showing separate date columns
-        // that could disagree with the X's would be confusing.
-        string[] headers = { "Template", "Phase", "Notes" };
-        for (var i = 0; i < headers.Length; i++) ws.Cell(1, i + 1).Value = headers[i];
-
-        var firstMonthCol = headers.Length + 1;
-        for (var i = 0; i < months.Count; i++)
-        {
-            var cell = ws.Cell(1, firstMonthCol + i);
-            cell.Value = months[i].ToDateTime(TimeOnly.MinValue);
-            cell.Style.DateFormat.Format = "mmm-yy";
-        }
-
-        ws.Row(1).Style.Font.SetBold();
-        ws.SheetView.FreezeRows(1);
-        ws.SheetView.FreezeColumns(headers.Length);
-
-        var row = 2;
+        ws.Cell(row, 1).Value = "Template";
+        ws.Cell(row, 2).Value = "Phase";
+        ws.Cell(row, 3).Value = "Notes";
+        WriteMonthHeaders(row);
+        ws.Row(row).Style.Font.SetBold();
+        var templateHeaderRow = row;
+        row++;
 
         var phases = await _db.TemplatePhases.Include(p => p.Template).OrderBy(p => p.Template!.Name).ThenBy(p => p.SortOrder).ToListAsync(ct);
         foreach (var p in phases)
@@ -215,14 +169,78 @@ public class ExcelExportService
             row++;
         }
 
-        ws.Columns(1, headers.Length).AdjustToContents();
+        row += 2; // blank separator rows between the two tables
 
-        if (row > 2)
+        // ---- Resource Plan table (below, aligned month columns) ----
+        ws.Cell(row, 1).Value = "Resource Plan";
+        ws.Cell(row, 1).Style.Font.SetBold().Font.SetFontSize(13);
+        row++;
+
+        for (var i = 0; i < fixedHeaders.Length; i++)
         {
-            ws.Range(1, 1, row - 1, firstMonthCol + months.Count - 1).SetAutoFilter();
+            ws.Cell(row, i + 1).Value = fixedHeaders[i];
         }
-    }
+        WriteMonthHeaders(row);
+        ws.Row(row).Style.Font.SetBold();
+        var resourcePlanHeaderRow = row;
+        row++;
 
+        var firstDataRow = row;
+        foreach (var (key, values) in monthly.OrderBy(m => sample[m.Key].Team?.Name).ThenBy(m => sample[m.Key].Role?.Name))
+        {
+            var s = sample[key];
+            var templateName = s.TeamTemplateAssignment?.Template?.Name ?? s.TemplatePhase?.Template?.Name;
+
+            ws.Cell(row, 1).Value = templateName;
+            ws.Cell(row, 2).Value = s.TemplatePhase?.Name;
+            ws.Cell(row, 3).Value = s.Workstream?.Name;
+            ws.Cell(row, 4).Value = s.FocusArea?.Name;
+            ws.Cell(row, 5).Value = s.Team?.Name;
+            ws.Cell(row, 6).Value = s.Role?.Name;
+            ws.Cell(row, 7).Value = s.Person?.DisplayName;
+            // Pool only shown for open demand rows - once a Person is named,
+            // their own Resource Pool is the implicit source (see Reference
+            // Data > People for that mapping) so showing it here too could
+            // disagree with the Person's actual pool after re-import.
+            ws.Cell(row, 8).Value = s.Person is null ? s.ResourcePool?.Name : null;
+            ws.Cell(row, 9).Value = s.Notes;
+
+            for (var i = 0; i < values.Count; i++)
+            {
+                if (values[i].Fte != 0m)
+                {
+                    ws.Cell(row, firstMonthCol + i).Value = values[i].Fte;
+                }
+            }
+
+            row++;
+        }
+
+        var lastDataRow = row - 1;
+
+        ws.Columns(1, fixedHeaders.Length).AdjustToContents();
+
+        // Freeze through the Resource Plan header row (not just row 1) so
+        // the Template Plan overlay above stays visible while scrolling
+        // through Resource Plan data - this is what gives the planner the
+        // "template overlay while planning" view the two tables share.
+        ws.SheetView.FreezeRows(resourcePlanHeaderRow);
+        ws.SheetView.FreezeColumns(fixedHeaders.Length);
+
+        // AutoFilter (rather than a structured Excel Table/ListObject) gives
+        // every column - including the date-valued month headers - the
+        // standard filter-dropdown UX, without the restrictions a
+        // ListObject would impose (unique text-only headers, etc.). Excel
+        // only supports one AutoFilter range per sheet, so with the two
+        // tables merged onto one sheet the filter is scoped to the
+        // Resource Plan table (the primary data-entry grid).
+        if (lastDataRow >= firstDataRow)
+        {
+            ws.Range(resourcePlanHeaderRow, 1, lastDataRow, firstMonthCol + months.Count - 1).SetAutoFilter();
+        }
+
+        return new ResourcePlanSheetLayout(resourcePlanHeaderRow, firstDataRow, Math.Max(lastDataRow, firstDataRow - 1));
+    }
 
     /// <summary>Column positions of key Reference Data tables, captured while
     /// building that sheet so the Summary sheet can build live VLOOKUP
@@ -306,13 +324,13 @@ public class ExcelExportService
     // month date serial - are never swept into the sums below.
     private const int RpMaxDataRow = 100000;
 
-    private void BuildSummarySheet(XLWorkbook workbook, List<DateOnly> months, List<ResourcePlanLine> lines, List<ResourcePool> pools, ReferenceDataColumns refCols)
+    private void BuildSummarySheet(XLWorkbook workbook, List<DateOnly> months, List<ResourcePlanLine> lines, List<ResourcePool> pools, ReferenceDataColumns refCols, ResourcePlanSheetLayout rpLayout)
     {
         var ws = workbook.Worksheets.Add("Summary");
         var rpWs = workbook.Worksheet("Resource Plan");
 
-        string ColLetter(int col) => rpWs.Cell(1, col).Address.ColumnLetter;
-        string RpRange(int col) => $"'Resource Plan'!${ColLetter(col)}$2:${ColLetter(col)}${RpMaxDataRow}";
+        string ColLetter(int col) => rpWs.Cell(rpLayout.HeaderRow, col).Address.ColumnLetter;
+        string RpRange(int col) => $"'Resource Plan'!${ColLetter(col)}${rpLayout.FirstDataRow}:${ColLetter(col)}${RpMaxDataRow}";
 
         ws.Cell(1, 1).Value = "Filled FTE by Month";
         ws.Cell(1, 1).Style.Font.SetBold();
@@ -343,10 +361,10 @@ public class ExcelExportService
         // Role/Team breakdowns below can SUMIFS a single column instead of
         // re-summing every month column per group.
         var rowTotalCol = RpFirstMonthCol + months.Count;
-        rpWs.Cell(1, rowTotalCol).Value = "Row Total FTE";
-        rpWs.Cell(1, rowTotalCol).Style.Font.SetBold();
-        var rpLastRow = 1 + lines.Select(l => l.ToRowKey()).Distinct().Count();
-        for (var r = 2; r <= rpLastRow; r++)
+        rpWs.Cell(rpLayout.HeaderRow, rowTotalCol).Value = "Row Total FTE";
+        rpWs.Cell(rpLayout.HeaderRow, rowTotalCol).Style.Font.SetBold();
+        var rpLastRow = rpLayout.LastDataRow;
+        for (var r = rpLayout.FirstDataRow; r <= rpLastRow; r++)
         {
             rpWs.Cell(r, rowTotalCol).FormulaA1 =
                 $"=SUM({ColLetter(RpFirstMonthCol)}{r}:{ColLetter(RpFirstMonthCol + months.Count - 1)}{r})";
@@ -376,7 +394,7 @@ public class ExcelExportService
         }
 
         row += 2;
-        BuildPoolAndVendorSections(ws, rpWs, ref row, months, lines, pools, refCols, rpLastRow, ColLetter, RpRange, personRange);
+        BuildPoolAndVendorSections(ws, rpWs, ref row, months, lines, pools, refCols, rpLayout.HeaderRow, rpLayout.FirstDataRow, rpLastRow, ColLetter, RpRange, personRange);
 
         ws.Columns().AdjustToContents();
     }
@@ -410,6 +428,8 @@ public class ExcelExportService
         List<ResourcePlanLine> lines,
         List<ResourcePool> pools,
         ReferenceDataColumns refCols,
+        int rpHeaderRow,
+        int rpFirstDataRow,
         int rpLastRow,
         Func<int, string> colLetter,
         Func<int, string> rpRange,
@@ -425,10 +445,10 @@ public class ExcelExportService
         var effVendorCol = rowTotalCol + 2;
         var effRateCol = rowTotalCol + 3;
 
-        rpWs.Cell(1, effPoolCol).Value = "Effective Pool";
-        rpWs.Cell(1, effVendorCol).Value = "Effective Vendor";
-        rpWs.Cell(1, effRateCol).Value = "Effective Hourly Rate";
-        rpWs.Row(1).Style.Font.SetBold();
+        rpWs.Cell(rpHeaderRow, effPoolCol).Value = "Effective Pool";
+        rpWs.Cell(rpHeaderRow, effVendorCol).Value = "Effective Vendor";
+        rpWs.Cell(rpHeaderRow, effRateCol).Value = "Effective Hourly Rate";
+        rpWs.Row(rpHeaderRow).Style.Font.SetBold();
 
         var personColLetter = colLetter(RpPersonCol);
         var poolColLetter = colLetter(RpPoolCol);
@@ -438,7 +458,7 @@ public class ExcelExportService
         var peopleRange = $"'Reference Data'!${colLetter(refCols.PeopleCol)}$3:${colLetter(refCols.PeopleCol + 1)}${RpMaxDataRow}";
         var poolsLookupRange = $"'Reference Data'!${colLetter(refCols.ResourcePoolsCol)}$3:${colLetter(refCols.ResourcePoolsCol + 5)}${RpMaxDataRow}";
 
-        for (var r = 2; r <= rpLastRow; r++)
+        for (var r = rpFirstDataRow; r <= rpLastRow; r++)
         {
             rpWs.Cell(r, effPoolCol).FormulaA1 =
                 $"=IF(${personColLetter}{r}<>\"\",IFERROR(VLOOKUP(${personColLetter}{r},{peopleRange},2,FALSE),\"\"),${poolColLetter}{r})";
@@ -447,7 +467,7 @@ public class ExcelExportService
             rpWs.Cell(r, effVendorCol).FormulaA1 =
                 $"=IF(${effPoolColLetter}{r}<>\"\",IFERROR(VLOOKUP(${effPoolColLetter}{r},{poolsLookupRange},5,FALSE),\"\"),\"\")";
         }
-        rpWs.Range(2, effRateCol, Math.Max(2, rpLastRow), effRateCol).Style.NumberFormat.Format = "$#,##0.00";
+        rpWs.Range(rpFirstDataRow, effRateCol, Math.Max(rpFirstDataRow, rpLastRow), effRateCol).Style.NumberFormat.Format = "$#,##0.00";
 
         var quarters = months
             .Select(m => (Year: m.Year, Quarter: (m.Month - 1) / 3 + 1))
@@ -476,11 +496,11 @@ public class ExcelExportService
 
         for (var q = 0; q < quarters.Count; q++)
         {
-            rpWs.Cell(1, quarterCostCol[q]).Value = $"{quarterLabels[q]} Cost (helper)";
-            rpWs.Cell(1, quarterCountCol[q]).Value = $"{quarterLabels[q]} Count (helper)";
+            rpWs.Cell(rpHeaderRow, quarterCostCol[q]).Value = $"{quarterLabels[q]} Cost (helper)";
+            rpWs.Cell(rpHeaderRow, quarterCountCol[q]).Value = $"{quarterLabels[q]} Count (helper)";
         }
 
-        for (var r = 2; r <= rpLastRow; r++)
+        for (var r = rpFirstDataRow; r <= rpLastRow; r++)
         {
             for (var q = 0; q < quarters.Count; q++)
             {
@@ -501,8 +521,8 @@ public class ExcelExportService
 
         if (quarters.Count > 0)
         {
-            rpWs.Range(2, quarterCostCol[0], Math.Max(2, rpLastRow), quarterCostCol[^1]).Style.NumberFormat.Format = "$#,##0";
-            rpWs.Range(2, quarterCountCol[0], Math.Max(2, rpLastRow), quarterCountCol[^1]).Style.NumberFormat.Format = "0.00";
+            rpWs.Range(rpFirstDataRow, quarterCostCol[0], Math.Max(rpFirstDataRow, rpLastRow), quarterCostCol[^1]).Style.NumberFormat.Format = "$#,##0";
+            rpWs.Range(rpFirstDataRow, quarterCountCol[0], Math.Max(rpFirstDataRow, rpLastRow), quarterCountCol[^1]).Style.NumberFormat.Format = "0.00";
             rpWs.Columns(effPoolCol, quarterCountCol[^1]).Hide();
         }
         else

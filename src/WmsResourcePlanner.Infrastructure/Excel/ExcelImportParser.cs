@@ -5,33 +5,60 @@ namespace WmsResourcePlanner.Infrastructure.Excel;
 
 /// <summary>
 /// Parses the "Resource Plan" sheet of an uploaded workbook into plain
-/// ImportRow DTOs (SPEC.md Phase 16). Pure parsing only - no database
-/// access; expects the same column layout produced by ExcelExportService
-/// (Template | Phase | Workstream | Focus Area | Team | Role | Person |
-/// Pool | Notes, followed by one column per month with a date-formatted
-/// header).
+/// ImportRow / TemplatePlanImportRow DTOs (SPEC.md Phase 16). Pure parsing
+/// only - no database access. Since ExcelExportService now writes both the
+/// Template Plan table and the Resource Plan table onto the single
+/// "Resource Plan" sheet (Template Plan first, Resource Plan below,
+/// sharing the same month columns), both parsers below locate their own
+/// header row within that one sheet rather than assuming fixed row
+/// numbers, so a user's manual row insertions/deletions before either
+/// table don't break parsing.
 /// </summary>
 public static class ExcelImportParser
 {
-    public static List<ImportRow> ParseResourcePlanSheet(Stream stream)
+    /// <summary>Finds the header row of the Resource Plan table: the row
+    /// whose first three cells are "Template", "Phase", "Workstream" (the
+    /// Template Plan table's header row has "Notes" in the third cell
+    /// instead, since it has no Workstream column).</summary>
+    private static int? FindResourcePlanHeaderRow(IXLWorksheet ws)
     {
-        using var workbook = new XLWorkbook(stream);
-        var ws = workbook.Worksheets.FirstOrDefault(w =>
-            string.Equals(w.Name, "Resource Plan", StringComparison.OrdinalIgnoreCase));
-
-        if (ws is null)
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? 0;
+        for (var r = 1; r <= lastRow; r++)
         {
-            throw new InvalidOperationException("The workbook does not contain a \"Resource Plan\" worksheet.");
+            var row = ws.Row(r);
+            if (row.Cell(1).GetString().Trim().Equals("Template", StringComparison.OrdinalIgnoreCase) &&
+                row.Cell(2).GetString().Trim().Equals("Phase", StringComparison.OrdinalIgnoreCase) &&
+                row.Cell(3).GetString().Trim().Equals("Workstream", StringComparison.OrdinalIgnoreCase))
+            {
+                return r;
+            }
         }
+        return null;
+    }
 
-        var headerRow = ws.Row(1);
-        var lastColumn = ws.LastColumnUsed()?.ColumnNumber() ?? 0;
+    /// <summary>Finds the header row of the Template Plan table (see
+    /// FindResourcePlanHeaderRow for how the two header rows are told
+    /// apart).</summary>
+    private static int? FindTemplatePlanHeaderRow(IXLWorksheet ws)
+    {
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? 0;
+        for (var r = 1; r <= lastRow; r++)
+        {
+            var row = ws.Row(r);
+            if (row.Cell(1).GetString().Trim().Equals("Template", StringComparison.OrdinalIgnoreCase) &&
+                row.Cell(2).GetString().Trim().Equals("Phase", StringComparison.OrdinalIgnoreCase) &&
+                row.Cell(3).GetString().Trim().Equals("Notes", StringComparison.OrdinalIgnoreCase))
+            {
+                return r;
+            }
+        }
+        return null;
+    }
 
-        // Fixed columns are Template/Phase/Workstream/Focus Area/Team/Role/Person/Pool/Notes (1-9);
-        // month columns start at 10 and are identified by a parseable date header.
-        const int firstMonthColumn = 10;
+    private static List<(int Column, int Year, int Month)> FindMonthColumns(IXLRow headerRow, int lastColumn)
+    {
         var monthColumns = new List<(int Column, int Year, int Month)>();
-        for (var c = firstMonthColumn; c <= lastColumn; c++)
+        for (var c = 1; c <= lastColumn; c++)
         {
             var cell = headerRow.Cell(c);
             DateTime? date = cell.DataType == XLDataType.DateTime
@@ -43,11 +70,34 @@ public static class ExcelImportParser
                 monthColumns.Add((c, date.Value.Year, date.Value.Month));
             }
         }
+        return monthColumns;
+    }
+
+    public static List<ImportRow> ParseResourcePlanSheet(Stream stream)
+    {
+        using var workbook = new XLWorkbook(stream);
+        var ws = workbook.Worksheets.FirstOrDefault(w =>
+            string.Equals(w.Name, "Resource Plan", StringComparison.OrdinalIgnoreCase));
+
+        if (ws is null)
+        {
+            throw new InvalidOperationException("The workbook does not contain a \"Resource Plan\" worksheet.");
+        }
+
+        var headerRowNum = FindResourcePlanHeaderRow(ws)
+            ?? throw new InvalidOperationException("Could not find the Resource Plan table's header row (expected \"Template\", \"Phase\", \"Workstream\" ... columns) on the \"Resource Plan\" sheet.");
+
+        var headerRow = ws.Row(headerRowNum);
+        var lastColumn = ws.LastColumnUsed()?.ColumnNumber() ?? 0;
+
+        // Fixed columns are Template/Phase/Workstream/Focus Area/Team/Role/Person/Pool/Notes (1-9);
+        // month columns are identified by a parseable date header.
+        var monthColumns = FindMonthColumns(headerRow, lastColumn);
 
         var rows = new List<ImportRow>();
-        var lastRow = ws.LastRowUsed()?.RowNumber() ?? 1;
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? headerRowNum;
 
-        for (var r = 2; r <= lastRow; r++)
+        for (var r = headerRowNum + 1; r <= lastRow; r++)
         {
             var row = ws.Row(r);
             var team = row.Cell(5).GetString().Trim();
@@ -105,57 +155,59 @@ public static class ExcelImportParser
     }
 
     /// <summary>
-    /// Parses the "Template Plan" sheet into TemplatePlanImportRow DTOs.
-    /// Layout matches ExcelExportService.BuildTemplatePlanSheetAsync:
-    /// Template | Phase | Notes, followed by one column per month with an
-    /// "X" marking that phase's active months. The "X" marks are the sole
-    /// source of truth for a phase's dates - there are no separate Start
-    /// Date/End Date columns that could disagree with them - so the
-    /// derived StartDate/EndDate always come from the first/last marked
-    /// month. A row with no "X" marks at all is an error (a new phase
-    /// must have at least one active month marked).
+    /// Parses the Template Plan table from the "Resource Plan" sheet into
+    /// TemplatePlanImportRow DTOs. Layout matches
+    /// ExcelExportService.BuildResourcePlanSheetAsync: Template | Phase |
+    /// Notes, followed by one column per month (aligned with the Resource
+    /// Plan table's month columns below it) with an "X" marking that
+    /// phase's active months. The "X" marks are the sole source of truth
+    /// for a phase's dates - there are no separate Start Date/End Date
+    /// columns that could disagree with them - so the derived
+    /// StartDate/EndDate always come from the first/last marked month. A
+    /// row with no "X" marks at all is an error (a new phase must have at
+    /// least one active month marked).
     /// </summary>
     public static List<TemplatePlanImportRow> ParseTemplatePlanSheet(Stream stream)
     {
         using var workbook = new XLWorkbook(stream);
         var ws = workbook.Worksheets.FirstOrDefault(w =>
-            string.Equals(w.Name, "Template Plan", StringComparison.OrdinalIgnoreCase));
+            string.Equals(w.Name, "Resource Plan", StringComparison.OrdinalIgnoreCase));
 
         if (ws is null)
         {
-            throw new InvalidOperationException("The workbook does not contain a \"Template Plan\" worksheet.");
+            throw new InvalidOperationException("The workbook does not contain a \"Resource Plan\" worksheet.");
         }
 
-        var headerRow = ws.Row(1);
+        var templateHeaderRowNum = FindTemplatePlanHeaderRow(ws)
+            ?? throw new InvalidOperationException("Could not find the Template Plan table's header row (expected \"Template\", \"Phase\", \"Notes\" columns) on the \"Resource Plan\" sheet.");
+
+        // The Resource Plan table's header row (if present) bounds where
+        // the Template Plan table's data rows end, since both tables now
+        // share one sheet.
+        var resourcePlanHeaderRowNum = FindResourcePlanHeaderRow(ws);
+
+        var headerRow = ws.Row(templateHeaderRowNum);
         var lastColumn = ws.LastColumnUsed()?.ColumnNumber() ?? 0;
-
-        const int firstMonthColumn = 4;
-        var monthColumns = new List<(int Column, int Year, int Month)>();
-        for (var c = firstMonthColumn; c <= lastColumn; c++)
-        {
-            var cell = headerRow.Cell(c);
-            DateTime? date = cell.DataType == XLDataType.DateTime
-                ? cell.GetDateTime()
-                : DateTime.TryParse(cell.GetString(), out var parsed) ? parsed : null;
-
-            if (date is not null)
-            {
-                monthColumns.Add((c, date.Value.Year, date.Value.Month));
-            }
-        }
+        var monthColumns = FindMonthColumns(headerRow, lastColumn);
 
         var rows = new List<TemplatePlanImportRow>();
-        var lastRow = ws.LastRowUsed()?.RowNumber() ?? 1;
+        var lastRow = resourcePlanHeaderRowNum is int rpRow && rpRow > templateHeaderRowNum
+            ? rpRow - 1
+            : ws.LastRowUsed()?.RowNumber() ?? templateHeaderRowNum;
 
-        for (var r = 2; r <= lastRow; r++)
+        for (var r = templateHeaderRowNum + 1; r <= lastRow; r++)
         {
             var row = ws.Row(r);
             var templateName = row.Cell(1).GetString().Trim();
             var phaseName = row.Cell(2).GetString().Trim();
 
-            if (string.IsNullOrWhiteSpace(templateName) && string.IsNullOrWhiteSpace(phaseName) &&
+            if (string.IsNullOrWhiteSpace(phaseName) &&
                 monthColumns.All(mc => row.Cell(mc.Column).IsEmpty()))
             {
+                // Either a fully blank row, or the "Resource Plan" section
+                // title row that follows this table on the shared sheet
+                // (which only has a value in column 1) - neither is real
+                // Template Plan data.
                 continue;
             }
 

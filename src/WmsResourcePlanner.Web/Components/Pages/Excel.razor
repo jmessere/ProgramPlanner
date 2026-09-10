@@ -11,7 +11,7 @@
 
 <PageTitle>Excel</PageTitle>
 <h1>Excel</h1>
-<p>Export the current resource plan as a standalone workbook (Resource Plan, Template Plan, Reference Data, Summary).</p>
+<p>Export the current resource plan as a standalone workbook (Resource Plan, Reference Data, Summary). The Resource Plan sheet contains the Template Plan overlay table at the top and the Resource Plan grid below it, sharing the same month columns.</p>
 
 <label>Scenario:
     <select @bind="_scenarioId">
@@ -28,7 +28,7 @@
 
 <h2>Import</h2>
 <p>Upload a workbook with a "Resource Plan" sheet in the same layout as the export
-(Template | Phase | Workstream | Focus Area | Team | Role | Person | Notes, then one column per month).
+(Template Plan table on top, Resource Plan table below with Template | Phase | Workstream | Focus Area | Team | Role | Person | Notes, then one column per month).
 A blank Person is interpreted as open demand. New Teams, People, Roles, Workstreams, Focus Areas, and
 Templates named in the sheet that don't already exist are resolved/created automatically.</p>
 
@@ -191,13 +191,13 @@ Templates named in the sheet that don't already exist are resolved/created autom
             await stream.CopyToAsync(ms);
             ms.Position = 0;
 
-            // Template Plan is optional - a workbook without that sheet is
+            // Template Plan table is optional - a workbook without one is
             // still a valid Resource-Plan-only import.
             _templatePlanRows = WmsResourcePlanner.Infrastructure.Excel.ExcelImportParser.ParseTemplatePlanSheet(ms);
         }
         catch (Exception ex)
         {
-            _templatePlanParseError = $"Could not read \"Template Plan\" sheet: {ex.Message}";
+            _templatePlanParseError = $"Could not read Template Plan table: {ex.Message}";
         }
     }
 

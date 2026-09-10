@@ -102,13 +102,20 @@ public class ExcelImportServiceTests
 
         // Simulate the user editing the workbook: remove the "X" from April
         // and add one for May, i.e. shift the phase's end date out a month.
+        // The Template Plan table now lives at the top of the merged
+        // "Resource Plan" sheet, with month columns starting at column 10
+        // (aligned with the Resource Plan table below it): Jan=10, Feb=11,
+        // Mar=12, Apr=13, May=14.
         using (var editStream = new MemoryStream(bytes))
         using (var wb = new ClosedXML.Excel.XLWorkbook(editStream))
         {
-            var ws = wb.Worksheet("Template Plan");
-            Assert.Equal("X", ws.Cell(2, 7).GetString()); // Apr 2027
-            ws.Cell(2, 7).Value = string.Empty;
-            ws.Cell(2, 8).Value = "X"; // May 2027
+            var ws = wb.Worksheet("Resource Plan");
+            var templateHeaderRow = Enumerable.Range(1, ws.LastRowUsed()!.RowNumber())
+                .First(r => ws.Cell(r, 1).GetString() == "Template" && ws.Cell(r, 3).GetString() == "Notes");
+            var dataRow = templateHeaderRow + 1;
+            Assert.Equal("X", ws.Cell(dataRow, 13).GetString()); // Apr 2027
+            ws.Cell(dataRow, 13).Value = string.Empty;
+            ws.Cell(dataRow, 14).Value = "X"; // May 2027
             using var savedStream = new MemoryStream();
             wb.SaveAs(savedStream);
             bytes = savedStream.ToArray();
