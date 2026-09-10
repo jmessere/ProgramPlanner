@@ -62,6 +62,57 @@ table.data-grid th {
     z-index: 2;
 }
 
+/* Frozen (horizontally-sticky) leading columns on the Resource Plan grid.
+   border-collapse:collapse does not composite correctly with position:sticky
+   in most browsers - collapsed borders "bleed through" sticky cells as the
+   table scrolls, which looks like the frozen columns mixing with the
+   scrolling data. Switch this table to separate borders (each cell paints
+   its own border) so sticky cells fully and correctly occlude the content
+   scrolling underneath them. */
+table.data-grid.frozen-grid {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+table.data-grid.frozen-grid th,
+table.data-grid.frozen-grid td {
+    border: none;
+    border-right: 1px solid #d1d5db;
+    border-bottom: 1px solid #d1d5db;
+}
+
+table.data-grid.frozen-grid th:first-child,
+table.data-grid.frozen-grid td:first-child {
+    border-left: 1px solid #d1d5db;
+}
+
+table.data-grid.frozen-grid thead tr:first-child th {
+    border-top: 1px solid #d1d5db;
+}
+
+.frozen-grid .frozen-col {
+    position: sticky;
+    z-index: 1;
+    background: #fff;
+}
+
+.frozen-grid thead .frozen-col {
+    z-index: 4;
+    background: #f3f4f6;
+}
+
+.frozen-grid .frozen-col-1 { left: 0px; width: 140px; }
+.frozen-grid .frozen-col-2 { left: 140px; width: 100px; }
+.frozen-grid .frozen-col-3 { left: 240px; width: 120px; }
+.frozen-grid .frozen-col-4 { left: 360px; width: 120px; }
+.frozen-grid .frozen-col-5 { left: 480px; width: 130px; }
+
+/* Visible seam marking the boundary between frozen columns and scrolling
+   month data, so the freeze point is obvious as the grid is scrolled. */
+.frozen-grid .frozen-col-last {
+    box-shadow: 2px 0 4px -2px rgba(0, 0, 0, 0.35);
+}
+
 table.data-grid input, table.data-grid select {
     width: 100%;
     box-sizing: border-box;
@@ -73,13 +124,6 @@ table.data-grid input, table.data-grid select {
 table.data-grid input:focus, table.data-grid select:focus {
     border: 1px solid #2563eb;
     background: white;
-}
-
-.frozen-col {
-    position: sticky;
-    left: 0;
-    background: white;
-    z-index: 1;
 }
 
 .grid-scroll {

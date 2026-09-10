@@ -4,6 +4,7 @@
 @inject WmsResourcePlanner.Application.Services.GapAnalysisService GapService
 @inject WmsResourcePlanner.Application.Services.CapacityService CapacityService
 @inject WmsResourcePlanner.Application.Services.RolloutCapacityService RolloutService
+@inject WmsResourcePlanner.Application.Services.HorizonService HorizonService
 @using Microsoft.EntityFrameworkCore
 
 <PageTitle>Reports</PageTitle>
@@ -110,8 +111,7 @@ else
     {
         var program = await Db.Programs.FirstAsync();
         var scenario = await Db.PlanningScenarios.FirstAsync(s => s.ProgramId == program.Id && s.IsBaseline);
-        var horizonStart = new DateOnly(DateTime.Today.Year, 1, 1);
-        var horizonEnd = horizonStart.AddMonths(59);
+        var (horizonStart, horizonEnd) = HorizonService.GetHorizon(program);
         _gaps = await GapService.GetOpenDemandAsync(scenario.Id, horizonStart, horizonEnd);
         _filledOpenTotal = await GapService.GetFilledOpenTotalAsync(scenario.Id, horizonStart, horizonEnd);
         _capacity = await CapacityService.GetPersonCapacityAsync(scenario.Id, horizonStart, horizonEnd);

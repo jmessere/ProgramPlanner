@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @inject WmsResourcePlanner.Application.Services.GanttService GanttService
 @inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
+@inject WmsResourcePlanner.Application.Services.HorizonService HorizonService
 @using Microsoft.EntityFrameworkCore
 @using WmsResourcePlanner.Domain.Entities
 
@@ -50,10 +51,9 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        _horizonStart = new DateOnly(DateTime.Today.Year, 1, 1);
-        _horizonEnd = _horizonStart.AddMonths(59);
-
         var program = await Db.Programs.FirstAsync();
+        (_horizonStart, _horizonEnd) = HorizonService.GetHorizon(program);
+
         _scenarios = await Db.PlanningScenarios.Where(s => s.ProgramId == program.Id).ToListAsync();
         _scenarioId = _scenarios.FirstOrDefault(s => s.IsBaseline)?.Id ?? _scenarios.First().Id;
 

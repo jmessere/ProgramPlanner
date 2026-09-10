@@ -4,6 +4,7 @@
 @inject WmsResourcePlanner.Application.Services.ImportService ImportService
 @inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
 @inject IJSRuntime JS
+@inject WmsResourcePlanner.Application.Services.HorizonService HorizonService
 @using Microsoft.EntityFrameworkCore
 @using WmsResourcePlanner.Domain.Entities
 @using WmsResourcePlanner.Application.DTOs
@@ -98,6 +99,8 @@ Templates named in the sheet that don't already exist are resolved/created autom
     private int _scenarioId;
     private int _importScenarioId;
     private int _programId;
+    private DateOnly _horizonStart;
+    private DateOnly _horizonEnd;
     private bool _exporting;
     private bool _committing;
     private string? _parseError;
@@ -109,6 +112,7 @@ Templates named in the sheet that don't already exist are resolved/created autom
     {
         var program = await Db.Programs.FirstAsync();
         _programId = program.Id;
+        (_horizonStart, _horizonEnd) = HorizonService.GetHorizon(program);
         _scenarios = await Db.PlanningScenarios.Where(s => s.ProgramId == program.Id).ToListAsync();
         _scenarioId = _scenarios.FirstOrDefault(s => s.IsBaseline)?.Id ?? _scenarios.First().Id;
         _importScenarioId = _scenarioId;
@@ -117,9 +121,7 @@ Templates named in the sheet that don't already exist are resolved/created autom
     private async Task ExportAsync()
     {
         _exporting = true;
-        var horizonStart = new DateOnly(DateTime.Today.Year, 1, 1);
-        var horizonEnd = horizonStart.AddMonths(59);
-        var bytes = await ExportService.ExportAsync(_scenarioId, horizonStart, horizonEnd);
+        var bytes = await ExportService.ExportAsync(_scenarioId, _horizonStart, _horizonEnd);
         _exporting = false;
 
         var base64 = Convert.ToBase64String(bytes);

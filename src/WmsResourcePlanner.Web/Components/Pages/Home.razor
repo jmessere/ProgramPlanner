@@ -3,6 +3,7 @@
 @inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
 @inject WmsResourcePlanner.Application.Services.CapacityService CapacityService
 @inject WmsResourcePlanner.Application.Services.GapAnalysisService GapService
+@inject WmsResourcePlanner.Application.Services.HorizonService HorizonService
 @using Microsoft.EntityFrameworkCore
 @using WmsResourcePlanner.Domain.Entities
 
@@ -65,9 +66,7 @@ else
         var program = await Db.Programs.FirstAsync();
         var scenario = await Db.PlanningScenarios.FirstAsync(s => s.ProgramId == program.Id && s.IsBaseline);
 
-        var today = DateOnly.FromDateTime(DateTime.Today);
-        var horizonStart = new DateOnly(today.Year, 1, 1);
-        var horizonEnd = horizonStart.AddMonths(59);
+        var (horizonStart, horizonEnd) = HorizonService.GetHorizon(program);
 
         _activePeople = await Db.People.CountAsync(p => p.ProgramId == program.Id && p.Active);
         _activeTeams = await Db.Teams.CountAsync(t => t.ProgramId == program.Id && t.Active);

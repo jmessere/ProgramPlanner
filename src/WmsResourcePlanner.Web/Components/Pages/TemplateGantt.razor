@@ -1,6 +1,9 @@
 @page "/gantt/templates"
 @rendermode InteractiveServer
 @inject WmsResourcePlanner.Application.Services.GanttService GanttService
+@inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
+@inject WmsResourcePlanner.Application.Services.HorizonService HorizonService
+@using Microsoft.EntityFrameworkCore
 
 <PageTitle>Template Gantt</PageTitle>
 <h1>Template Gantt</h1>
@@ -29,8 +32,8 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        _horizonStart = new DateOnly(DateTime.Today.Year, 1, 1);
-        _horizonEnd = _horizonStart.AddMonths(59);
+        var program = await Db.Programs.FirstAsync();
+        (_horizonStart, _horizonEnd) = HorizonService.GetHorizon(program);
         await LoadAsync();
         _loading = false;
     }

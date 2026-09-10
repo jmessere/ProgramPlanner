@@ -1,0 +1,106 @@
+@page "/settings"
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
+@inject WmsResourcePlanner.Application.Services.HorizonService HorizonService
+@using Microsoft.EntityFrameworkCore
+@using WmsResourcePlanner.Domain.Entities
+
+<PageTitle>Settings</PageTitle>
+<h1>Settings</h1>
+
+@if (_loading)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <h2>Planning Horizon</h2>
+    <p>
+        Controls the date range shown on the Resource Plan grid, Gantt views, Global Timeline, Reports, and
+        the Excel export/import. SPEC.md requires support for at least @WmsResourcePlanner.Application.Services.HorizonService.MinimumHorizonMonths months.
+    </p>
+
+    <div class="toolbar">
+        <label>Start month (yyyy-MM):
+            <input type="text" @bind="_startMonthText" placeholder="2026-01" style="width:90px" />
+        </label>
+        <label>Number of months:
+            <input type="number" min="@WmsResourcePlanner.Application.Services.HorizonService.MinimumHorizonMonths" step="1" @bind="_months" style="width:80px" />
+        </label>
+        <button class="btn" @onclick="SaveAsync">Save</button>
+        <button class="btn secondary" @onclick="ResetToDefaultAsync">Reset to default (60 months from Jan this year)</button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_error))
+    {
+        <p class="validation-message">@_error</p>
+    }
+    @if (!string.IsNullOrEmpty(_status))
+    {
+        <p class="save-status">@_status</p>
+    }
+
+    <p>Current horizon: <strong>@_currentStart.ToString("MMM yyyy") – @_currentEnd.ToString("MMM yyyy")</strong>
+        (@WmsResourcePlanner.Application.Services.HorizonService.MonthSpan(_currentStart, _currentEnd) months)</p>
+}
+
+@code {
+    private bool _loading = true;
+    private Program _program = null!;
+    private string _startMonthText = string.Empty;
+    private int _months;
+    private DateOnly _currentStart;
+    private DateOnly _currentEnd;
+    private string? _error;
+    private string _status = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _program = await Db.Programs.FirstAsync();
+        var (start, end) = HorizonService.GetHorizon(_program);
+        _currentStart = start;
+        _currentEnd = end;
+        _startMonthText = start.ToString("yyyy-MM");
+        _months = WmsResourcePlanner.Application.Services.HorizonService.MonthSpan(start, end);
+        _loading = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        _error = null;
+
+        if (!DateOnly.TryParseExact(_startMonthText + "-01", "yyyy-MM-dd", out var start))
+        {
+            _error = "Enter a valid start month.";
+            return;
+        }
+
+        if (_months < WmsResourcePlanner.Application.Services.HorizonService.MinimumHorizonMonths)
+        {
+            _error = $"The planning horizon must be at least {WmsResourcePlanner.Application.Services.HorizonService.MinimumHorizonMonths} months (SPEC.md requirement).";
+            return;
+        }
+
+        _program.StartDate = start;
+        _program.EndDate = start.AddMonths(_months - 1);
+        await Db.SaveChangesAsync();
+
+        _currentStart = _program.StartDate.Value;
+        _currentEnd = _program.EndDate.Value;
+        _status = $"Saved at {DateTime.Now:T}.";
+    }
+
+    private async Task ResetToDefaultAsync()
+    {
+        _program.StartDate = null;
+        _program.EndDate = null;
+        await Db.SaveChangesAsync();
+
+        var (start, end) = HorizonService.GetHorizon(_program);
+        _currentStart = start;
+        _currentEnd = end;
+        _startMonthText = start.ToString("yyyy-MM");
+        _months = WmsResourcePlanner.Application.Services.HorizonService.MonthSpan(start, end);
+        _status = $"Reset to default at {DateTime.Now:T}.";
+    }
+}
