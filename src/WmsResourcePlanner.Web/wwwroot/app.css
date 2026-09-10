@@ -73,7 +73,13 @@ table.data-grid.frozen-grid {
     border-collapse: separate;
     border-spacing: 0;
     table-layout: fixed;
-    width: auto;
+    /* An explicit total width is set inline per-render (sum of all column
+       widths) - table-layout:fixed only reliably enforces per-column widths
+       when the table's own width is a definite (non-auto) value in most
+       browsers; otherwise the browser silently falls back to content-based
+       auto sizing, which is what caused columns to render wider/narrower
+       than their sticky "left" offsets assumed. */
+    width: max-content;
 }
 
 /* box-sizing:border-box is essential here: the frozen columns' sticky

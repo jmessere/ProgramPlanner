@@ -62,7 +62,7 @@ else
     </details>
 
     <div class="grid-scroll">
-        <table class="data-grid frozen-grid">
+        <table class="data-grid frozen-grid" style="width:@(TotalGridWidth)px">
             <thead>
                 <tr>
                     <th class="frozen-col" style="left:@(TeamLeft)px;width:@(TeamColWidth)px">Team</th>
@@ -165,6 +165,14 @@ else
     private int WorkstreamLeft => TemplateLeft + (_showTemplateColumn ? TemplateColWidth : 0);
     private int RoleLeft => WorkstreamLeft + (_showWorkstreamColumn ? WorkstreamColWidth : 0);
     private int PersonLeft => RoleLeft + RoleColWidth;
+    private const int MonthColWidth = 56;
+
+    // table-layout:fixed only reliably fixes each column's rendered width
+    // (rather than falling back to content-based auto sizing, which is what
+    // caused the gaps/overlaps between the frozen columns and the month
+    // data) when the <table> itself has an explicit, non-auto width equal
+    // to the sum of all its column widths.
+    private int TotalGridWidth => PersonLeft + PersonColWidth + (_monthHeaders.Count * MonthColWidth);
 
     protected override async Task OnInitializedAsync()
     {
