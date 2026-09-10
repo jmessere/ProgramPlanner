@@ -2038,11 +2038,20 @@ active month marked).
 
 The Template Plan table's month columns start at the same column as the
 Resource Plan table's month columns below it, so the two timelines line
-up. Because Excel only supports one AutoFilter range per worksheet, and
-the two tables now share a sheet, the AutoFilter is scoped to the
-Resource Plan table (the primary data-entry grid); the Template Plan table
-keeps its Gantt-bar-like conditional formatting but not its own filter
-dropdowns.
+up. Both the Template Plan section (its Template/Phase/Notes label
+columns) and the Resource Plan section below it are each implemented as
+their own structured Excel Table (ListObject), so both can be filtered
+independently from each other even though they share one worksheet -
+Excel's one-AutoFilter-per-sheet limit only applies to the plain/legacy
+AutoFilter feature, not to Tables. The month columns are intentionally
+kept outside both Tables (as plain Date-typed cells rather than table
+columns), because OOXML requires Table column headers to be plain text -
+wrapping a date-typed header cell in a Table would strip its date typing
+on save, breaking re-import parsing. This has no practical filtering
+downside: an Excel Table's row filter hides/shows the entire worksheet
+row, so filtering by any label column (Template, Phase, Team, Role,
+Person, etc.) already hides/shows that row's month cells too, even though
+those columns sit outside the Table's own column range.
 
 Example (Jan-Jun 2027 shown):
 
@@ -2055,7 +2064,8 @@ Example (Jan-Jun 2027 shown):
 
 Directly below the Template Plan table (separated by blank rows and its
 own section title/header row), one row per planning line, filterable via
-the standard AutoFilter column-header dropdowns. The sheet is frozen
+its own structured Table's column-header dropdowns (independent of the
+Template Plan table's filter above it). The sheet is frozen
 through the Resource Plan table's header row (not just row 1) and through
 its fixed label columns, so the Template Plan overlay above and the
 row labels on the left both stay visible while scrolling through plan

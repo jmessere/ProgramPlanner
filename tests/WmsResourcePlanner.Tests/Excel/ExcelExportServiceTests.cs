@@ -94,7 +94,7 @@ public class ExcelExportServiceTests
     }
 
     [Fact]
-    public async Task ExportAsync_ResourcePlanSheet_HasAutoFilter()
+    public async Task ExportAsync_ResourcePlanSheet_HasFilterableTable()
     {
         using var db = TestDbFactory.Create();
         var program = new Program { Name = "P" };
@@ -121,8 +121,12 @@ public class ExcelExportServiceTests
         using var stream = new MemoryStream(bytes);
         using var workbook = new ClosedXML.Excel.XLWorkbook(stream);
 
+        // Resource Plan is a structured Table (not a plain sheet AutoFilter)
+        // so it can be filtered independently from the Template Plan table
+        // sharing the same sheet.
         var rpSheet = workbook.Worksheet("Resource Plan");
-        Assert.True(rpSheet.AutoFilter.IsEnabled);
+        var table = rpSheet.Tables.Single(t => t.Name == "ResourcePlanTable");
+        Assert.True(table.ShowAutoFilter);
     }
 
     [Fact]
@@ -173,9 +177,20 @@ public class ExcelExportServiceTests
         Assert.Equal("X", rpSheet.Cell(dataRow, 13).GetString()); // Apr 2027
         Assert.Equal("", rpSheet.Cell(dataRow, 14).GetString()); // May 2027
 
-        // Both tables' month columns must be the exact same columns.
+        // Both tables' month columns must be the exact same columns (both
+        // remain plain Date-typed cells outside either structured Table,
+        // so they keep their real date type/format for re-import parsing).
         var resourcePlanHeaderRow = FindResourcePlanHeaderRow(rpSheet);
         Assert.Equal(rpSheet.Cell(templateHeaderRow, 10).GetDateTime(), rpSheet.Cell(resourcePlanHeaderRow, 10).GetDateTime());
+
+        // Template Plan's label columns (Template/Phase/Notes) form their
+        // own structured Table, independently filterable from the
+        // Resource Plan table below - the month columns intentionally stay
+        // outside the Table (see BuildResourcePlanSheetAsync for why), but
+        // an Excel Table's filter hides/shows whole rows regardless, so
+        // this still filters the whole Template Plan row including months.
+        var templateTable = rpSheet.Tables.Single(t => t.Name == "TemplatePlanTable");
+        Assert.True(templateTable.ShowAutoFilter);
 
         Assert.True(rpSheet.ConditionalFormats.Any());
     }

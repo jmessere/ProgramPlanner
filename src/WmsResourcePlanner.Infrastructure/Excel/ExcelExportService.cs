@@ -169,6 +169,8 @@ public class ExcelExportService
             row++;
         }
 
+        var templateLastRow = row - 1;
+
         row += 2; // blank separator rows between the two tables
 
         // ---- Resource Plan table (below, aligned month columns) ----
@@ -227,16 +229,36 @@ public class ExcelExportService
         ws.SheetView.FreezeRows(resourcePlanHeaderRow);
         ws.SheetView.FreezeColumns(fixedHeaders.Length);
 
-        // AutoFilter (rather than a structured Excel Table/ListObject) gives
-        // every column - including the date-valued month headers - the
-        // standard filter-dropdown UX, without the restrictions a
-        // ListObject would impose (unique text-only headers, etc.). Excel
-        // only supports one AutoFilter range per sheet, so with the two
-        // tables merged onto one sheet the filter is scoped to the
-        // Resource Plan table (the primary data-entry grid).
+        // Structured Excel Tables (ListObjects) rather than a single
+        // sheet-level AutoFilter, so both the Template Plan overlay and
+        // the Resource Plan grid get their own independent filter-dropdown
+        // UX even though they share one sheet (Excel only allows one plain
+        // AutoFilter range per sheet, but any number of Tables). Each
+        // Table only spans the fixed label columns (Template/Phase/Notes
+        // for Template Plan; the 9 fixed columns for Resource Plan) and
+        // deliberately excludes the month columns: OOXML requires Table
+        // column headers to be plain text, but the month headers are
+        // Date-typed cells (so they keep their "mmm-yy" formatting and stay
+        // parseable by date on re-import) - wrapping them in a Table would
+        // silently coerce them away from real dates. This has no filtering
+        // downside: an Excel Table's row filter hides/shows entire rows
+        // sheet-wide, so filtering by a label column already hides that
+        // row's month values too even though those columns sit outside the
+        // Table's own range.
+        //
+        // A Table is only created when at least one real data row exists:
+        // ClosedXML's CreateTable() on a header-only range physically
+        // inserts a phantom blank data row (shifting every row below it
+        // down by one), which would silently corrupt the rest of the
+        // sheet's row layout. With zero phases/lines there is nothing to
+        // filter anyway, so the headers are simply left as plain text.
+        if (templateLastRow > templateHeaderRow)
+        {
+            ws.Range(templateHeaderRow, 1, templateLastRow, 3).CreateTable("TemplatePlanTable");
+        }
         if (lastDataRow >= firstDataRow)
         {
-            ws.Range(resourcePlanHeaderRow, 1, lastDataRow, firstMonthCol + months.Count - 1).SetAutoFilter();
+            ws.Range(resourcePlanHeaderRow, 1, lastDataRow, fixedHeaders.Length).CreateTable("ResourcePlanTable");
         }
 
         return new ResourcePlanSheetLayout(resourcePlanHeaderRow, firstDataRow, Math.Max(lastDataRow, firstDataRow - 1));
