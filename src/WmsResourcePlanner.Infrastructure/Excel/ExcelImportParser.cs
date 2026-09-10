@@ -8,7 +8,8 @@ namespace WmsResourcePlanner.Infrastructure.Excel;
 /// ImportRow DTOs (SPEC.md Phase 16). Pure parsing only - no database
 /// access; expects the same column layout produced by ExcelExportService
 /// (Template | Phase | Workstream | Focus Area | Team | Role | Person |
-/// Notes, followed by one column per month with a date-formatted header).
+/// Pool | Notes, followed by one column per month with a date-formatted
+/// header).
 /// </summary>
 public static class ExcelImportParser
 {
@@ -26,9 +27,9 @@ public static class ExcelImportParser
         var headerRow = ws.Row(1);
         var lastColumn = ws.LastColumnUsed()?.ColumnNumber() ?? 0;
 
-        // Fixed columns are Template/Phase/Workstream/Focus Area/Team/Role/Person/Notes (1-8);
-        // month columns start at 9 and are identified by a parseable date header.
-        const int firstMonthColumn = 9;
+        // Fixed columns are Template/Phase/Workstream/Focus Area/Team/Role/Person/Pool/Notes (1-9);
+        // month columns start at 10 and are identified by a parseable date header.
+        const int firstMonthColumn = 10;
         var monthColumns = new List<(int Column, int Year, int Month)>();
         for (var c = firstMonthColumn; c <= lastColumn; c++)
         {
@@ -59,6 +60,7 @@ public static class ExcelImportParser
                 continue;
             }
 
+            var personName = NullIfBlank(row.Cell(7).GetString());
             var importRow = new ImportRow
             {
                 RowNumber = r,
@@ -68,8 +70,11 @@ public static class ExcelImportParser
                 FocusAreaName = NullIfBlank(row.Cell(4).GetString()),
                 TeamName = team,
                 RoleName = role,
-                PersonName = NullIfBlank(row.Cell(7).GetString()),
-                Notes = NullIfBlank(row.Cell(8).GetString())
+                PersonName = personName,
+                // The Pool column only applies to open demand rows (blank Person) -
+                // when a Person is named, that person's own pool is the effective source.
+                PoolName = personName is null ? NullIfBlank(row.Cell(8).GetString()) : null,
+                Notes = NullIfBlank(row.Cell(9).GetString())
             };
 
             if (string.IsNullOrWhiteSpace(team)) importRow.Errors.Add("Team is required.");

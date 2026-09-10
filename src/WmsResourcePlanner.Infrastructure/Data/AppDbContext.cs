@@ -32,6 +32,8 @@ public class AppDbContext : DbContext, IAppDbContext
 
     public DbSet<Person> People => Set<Person>();
 
+    public DbSet<ResourcePool> ResourcePools => Set<ResourcePool>();
+
     public DbSet<ResourcePlanLine> ResourcePlanLines => Set<ResourcePlanLine>();
 
     public DbSet<Site> Sites => Set<Site>();
@@ -119,7 +121,18 @@ public class AppDbContext : DbContext, IAppDbContext
             e.Property(p => p.DisplayName).IsRequired().HasMaxLength(200);
             e.Property(p => p.DefaultCapacityFte).HasColumnType("decimal(5,2)");
             e.HasOne(p => p.PrimaryRole).WithMany().HasForeignKey(p => p.PrimaryRoleId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(p => p.ResourcePool).WithMany(rp => rp.People).HasForeignKey(p => p.ResourcePoolId).OnDelete(DeleteBehavior.SetNull);
             e.HasMany(p => p.ResourcePlanLines).WithOne(r => r.Person).HasForeignKey(r => r.PersonId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ResourcePool>(e =>
+        {
+            e.Property(p => p.Name).IsRequired().HasMaxLength(200);
+            e.Property(p => p.CostCenter).HasMaxLength(100);
+            e.Property(p => p.Vendor).HasMaxLength(200);
+            e.Property(p => p.AverageRate).HasColumnType("decimal(9,2)");
+            e.HasOne(p => p.Program).WithMany().HasForeignKey(p => p.ProgramId).OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(p => p.ResourcePlanLines).WithOne(r => r.ResourcePool).HasForeignKey(r => r.ResourcePoolId).OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<ResourcePlanLine>(e =>

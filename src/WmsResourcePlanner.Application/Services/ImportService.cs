@@ -34,6 +34,7 @@ public class ImportService
         var existingWorkstreams = await _db.Workstreams.Where(t => t.ProgramId == programId).Select(t => t.Name.ToLower()).ToListAsync(ct);
         var existingTemplates = await _db.Templates.Where(t => t.ProgramId == programId).Select(t => t.Name.ToLower()).ToListAsync(ct);
         var existingFocusAreas = await _db.FocusAreas.Where(t => t.ProgramId == programId).Select(t => t.Name.ToLower()).ToListAsync(ct);
+        var existingPools = await _db.ResourcePools.Where(t => t.ProgramId == programId).Select(t => t.Name.ToLower()).ToListAsync(ct);
 
         var items = new List<ImportPreviewItem>();
         foreach (var row in rows)
@@ -53,7 +54,8 @@ public class ImportService
                 IsNewPerson = !string.IsNullOrWhiteSpace(row.PersonName) && !existingPeople.Contains(row.PersonName!.Trim().ToLower()),
                 IsNewWorkstream = !string.IsNullOrWhiteSpace(row.WorkstreamName) && !existingWorkstreams.Contains(row.WorkstreamName!.Trim().ToLower()),
                 IsNewFocusArea = !string.IsNullOrWhiteSpace(row.FocusAreaName) && !existingFocusAreas.Contains(row.FocusAreaName!.Trim().ToLower()),
-                IsNewTemplate = !string.IsNullOrWhiteSpace(row.TemplateName) && !existingTemplates.Contains(row.TemplateName!.Trim().ToLower())
+                IsNewTemplate = !string.IsNullOrWhiteSpace(row.TemplateName) && !existingTemplates.Contains(row.TemplateName!.Trim().ToLower()),
+                IsNewPool = !string.IsNullOrWhiteSpace(row.PoolName) && !existingPools.Contains(row.PoolName!.Trim().ToLower())
             };
 
             if (row.MonthlyValues.Count == 0)
@@ -92,6 +94,9 @@ public class ImportService
             var person = string.IsNullOrWhiteSpace(row.PersonName)
                 ? null
                 : await _lookup.GetOrCreatePersonAsync(programId, row.PersonName!, ct);
+            var pool = person is null && !string.IsNullOrWhiteSpace(row.PoolName)
+                ? await _lookup.GetOrCreateResourcePoolAsync(programId, row.PoolName!, ct)
+                : null;
             var workstream = string.IsNullOrWhiteSpace(row.WorkstreamName)
                 ? null
                 : await _lookup.GetOrCreateWorkstreamAsync(programId, row.WorkstreamName!, ct);
@@ -138,7 +143,7 @@ public class ImportService
 
             var key = new ResourcePlanRowKey(
                 scenarioId, team.Id, teamTemplateAssignmentId, templatePhaseId,
-                workstream?.Id, focusArea?.Id, role.Id, person?.Id);
+                workstream?.Id, focusArea?.Id, role.Id, person?.Id, pool?.Id);
 
             var existingLines = await _db.ResourcePlanLines
                 .Where(r => r.ScenarioId == key.ScenarioId
@@ -148,7 +153,8 @@ public class ImportService
                     && r.WorkstreamId == key.WorkstreamId
                     && r.FocusAreaId == key.FocusAreaId
                     && r.RoleId == key.RoleId
-                    && r.PersonId == key.PersonId)
+                    && r.PersonId == key.PersonId
+                    && r.ResourcePoolId == key.ResourcePoolId)
                 .ToListAsync(ct);
 
             foreach (var line in existingLines) _db.ResourcePlanLines.Remove(line);
@@ -172,6 +178,7 @@ public class ImportService
                     FocusAreaId = key.FocusAreaId,
                     RoleId = key.RoleId,
                     PersonId = key.PersonId,
+                    ResourcePoolId = key.ResourcePoolId,
                     StartDate = range.StartDate,
                     EndDate = range.EndDate,
                     Fte = range.Fte,

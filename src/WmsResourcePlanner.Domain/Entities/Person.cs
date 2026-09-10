@@ -24,10 +24,13 @@ public class Person : BaseEntity
     public string? Location { get; set; }
 
     /// <summary>
-    /// Extensible free-text categorization (FTE, Contractor, Professional
-    /// Services, Vendor, TBD, ...).
+    /// Where this person is sourced from (replaces the old free-text
+    /// EmployeeType). Nullable so existing/imported people can be flagged
+    /// as needing a pool assignment rather than silently defaulting.
     /// </summary>
-    public string EmployeeType { get; set; } = "FTE";
+    public int? ResourcePoolId { get; set; }
+
+    public ResourcePool? ResourcePool { get; set; }
 
     public DateOnly? AvailableStartDate { get; set; }
 

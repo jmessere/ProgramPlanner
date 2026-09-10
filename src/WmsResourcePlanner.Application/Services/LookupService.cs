@@ -57,11 +57,32 @@ public class LookupService
             FirstName = parts[0],
             LastName = parts.Length > 1 ? parts[1] : string.Empty,
             DisplayName = displayName.Trim(),
-            EmployeeType = "FTE",
             DefaultCapacityFte = 1.0m,
             Active = true
         };
         _db.People.Add(created);
+        await _db.SaveChangesAsync(ct);
+        return created;
+    }
+
+    /// <summary>
+    /// Resolves a Resource Pool by name (used both for the Person "sourced
+    /// from" pool and a ResourcePlanLine's open-demand proposed pool). A
+    /// newly created pool defaults to Internal/zero rate - the user can
+    /// refine its Type/CostCenter/AverageRate/Vendor afterwards on the
+    /// Resource Pools admin page.
+    /// </summary>
+    public async Task<ResourcePool> GetOrCreateResourcePoolAsync(int programId, string name, CancellationToken ct = default)
+    {
+        var existing = await _db.ResourcePools.FirstOrDefaultAsync(
+            p => p.ProgramId == programId && p.Name.ToLower() == name.Trim().ToLower(), ct);
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var created = new ResourcePool { ProgramId = programId, Name = name.Trim(), Type = ResourcePoolType.Internal, Active = true };
+        _db.ResourcePools.Add(created);
         await _db.SaveChangesAsync(ct);
         return created;
     }

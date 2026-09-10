@@ -4,6 +4,8 @@ namespace WmsResourcePlanner.Application.DTOs;
 /// A single parsed row from the "Resource Plan" sheet of an uploaded
 /// workbook, before any database resolution/creation. Blank Person means
 /// open demand (SPEC.md convention - no "Record Type" column needed).
+/// PoolName is only meaningful for open-demand rows: it names the pool the
+/// demand is proposed to be sourced from, before a specific Person is named.
 /// </summary>
 public class ImportRow
 {
@@ -15,6 +17,7 @@ public class ImportRow
     public string TeamName { get; set; } = string.Empty;
     public string RoleName { get; set; } = string.Empty;
     public string? PersonName { get; set; }
+    public string? PoolName { get; set; }
     public string? Notes { get; set; }
 
     /// <summary>Year/Month -> FTE, only for months present with a non-blank value.</summary>
@@ -42,6 +45,7 @@ public class ImportPreviewItem
     public bool IsNewWorkstream { get; set; }
     public bool IsNewFocusArea { get; set; }
     public bool IsNewTemplate { get; set; }
+    public bool IsNewPool { get; set; }
     public bool IsOpenDemand { get; set; }
     public string MonthSummary { get; set; } = string.Empty;
     public List<string> Errors { get; set; } = new();

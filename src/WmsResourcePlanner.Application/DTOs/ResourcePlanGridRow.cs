@@ -21,6 +21,12 @@ public class ResourcePlanGridRow
 
     public string? PersonName { get; init; }
 
+    /// <summary>
+    /// Effective sourcing pool name: the assigned Person's own pool when
+    /// filled, or the line's proposed sourcing pool when open demand.
+    /// </summary>
+    public string? PoolName { get; init; }
+
     public bool IsOpenDemand => Key.PersonId is null;
 
     public List<MonthlyValue> Months { get; init; } = new();

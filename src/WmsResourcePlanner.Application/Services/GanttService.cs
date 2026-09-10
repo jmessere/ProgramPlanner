@@ -165,7 +165,8 @@ public class GanttService
             .Where(r => r.ScenarioId == scenarioId)
             .Include(r => r.Team)
             .Include(r => r.Role)
-            .Include(r => r.Person)
+            .Include(r => r.Person).ThenInclude(p => p!.ResourcePool)
+            .Include(r => r.ResourcePool)
             .Include(r => r.Workstream)
             .Include(r => r.TeamTemplateAssignment).ThenInclude(a => a!.Template)
             .Include(r => r.TemplatePhase).ThenInclude(p => p!.Template)
@@ -181,7 +182,7 @@ public class GanttService
             RoleName = r.Role?.Name ?? string.Empty,
             PersonName = r.Person?.DisplayName,
             PersonId = r.PersonId,
-            EmployeeType = r.Person?.EmployeeType,
+            PoolName = r.Person?.ResourcePool?.Name ?? r.ResourcePool?.Name,
             TeamType = r.Team?.TeamType,
             StartDate = r.StartDate,
             EndDate = r.EndDate,

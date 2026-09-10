@@ -44,6 +44,7 @@ else
         <label>Workstream: <input @bind="_filterWorkstream" @bind:event="oninput" placeholder="contains..." style="width:110px" /></label>
         <label>Role: <input @bind="_filterRole" @bind:event="oninput" placeholder="contains..." style="width:110px" /></label>
         <label>Person: <input @bind="_filterPerson" @bind:event="oninput" placeholder="contains..." style="width:110px" /></label>
+        <label>Pool: <input @bind="_filterPool" @bind:event="oninput" placeholder="contains..." style="width:110px" /></label>
         <span>Showing @FilteredRows().Count of @_rows.Count row(s).</span>
     </div>
 
@@ -61,7 +62,8 @@ else
                         <th class="frozen-col" style="left:@(WorkstreamLeft)px;width:@(WorkstreamColWidth)px;top:0">Workstream<span class="col-resize-handle" data-col="workstream"></span></th>
                     }
                     <th class="frozen-col" style="left:@(RoleLeft)px;width:@(RoleColWidth)px;top:0">Role<span class="col-resize-handle" data-col="role"></span></th>
-                    <th class="frozen-col frozen-col-last" style="left:@(PersonLeft)px;width:@(PersonColWidth)px;top:0">Person<span class="col-resize-handle" data-col="person"></span></th>
+                    <th class="frozen-col" style="left:@(PersonLeft)px;width:@(PersonColWidth)px;top:0">Person<span class="col-resize-handle" data-col="person"></span></th>
+                    <th class="frozen-col frozen-col-last" style="left:@(PoolLeft)px;width:@(PoolColWidth)px;top:0">Pool<span class="col-resize-handle" data-col="pool"></span></th>
                     @foreach (var m in _monthHeaders)
                     {
                         <th class="month-col" style="top:0;width:@(MonthColWidth)px">@m.ToString("MMM-yy")<span class="col-resize-handle" data-col="month"></span></th>
@@ -126,10 +128,17 @@ else
                             <option value="__new__">+ Add new...</option>
                         </select>
                     </td>
-                    <td class="frozen-col frozen-col-last" style="left:@(PersonLeft)px;width:@(PersonColWidth)px">
+                    <td class="frozen-col" style="left:@(PersonLeft)px;width:@(PersonColWidth)px">
                         <select class="grid-nav-cell" value="@(_newPersonId?.ToString() ?? "")" @onchange="OnNewPersonChangedAsync">
                             <option value="">(open demand)</option>
                             @foreach (var p in _people) { <option value="@p.Id">@p.DisplayName</option> }
+                            <option value="__new__">+ Add new...</option>
+                        </select>
+                    </td>
+                    <td class="frozen-col frozen-col-last" style="left:@(PoolLeft)px;width:@(PoolColWidth)px">
+                        <select class="grid-nav-cell" value="@(_newPoolId?.ToString() ?? "")" @onchange="OnNewPoolChangedAsync" disabled="@(_newPersonId is not null)" title="@(_newPersonId is not null ? "Sourced from the named person's own pool" : "Proposed sourcing pool for this open demand")">
+                            <option value="">(none)</option>
+                            @foreach (var pool in _pools) { <option value="@pool.Id">@pool.Name</option> }
                             <option value="__new__">+ Add new...</option>
                         </select>
                     </td>
@@ -175,12 +184,26 @@ else
                                 <option value="__new__">+ Add new...</option>
                             </select>
                         </td>
-                        <td class="frozen-col frozen-col-last" style="left:@(PersonLeft)px;width:@(PersonColWidth)px">
+                        <td class="frozen-col" style="left:@(PersonLeft)px;width:@(PersonColWidth)px">
                             <select class="grid-nav-cell" value="@(row.Key.PersonId?.ToString() ?? "")" @onchange="e => OnRowPersonChangedAsync(row, e)">
                                 <option value="">(open demand)</option>
                                 @foreach (var p in _people) { <option value="@p.Id">@p.DisplayName</option> }
                                 <option value="__new__">+ Add new...</option>
                             </select>
+                        </td>
+                        <td class="frozen-col frozen-col-last" style="left:@(PoolLeft)px;width:@(PoolColWidth)px">
+                            @if (row.Key.PersonId is null)
+                            {
+                                <select class="grid-nav-cell" value="@(row.Key.ResourcePoolId?.ToString() ?? "")" @onchange="e => OnRowPoolChangedAsync(row, e)" title="Proposed sourcing pool for this open demand">
+                                    <option value="">(none)</option>
+                                    @foreach (var pool in _pools) { <option value="@pool.Id">@pool.Name</option> }
+                                    <option value="__new__">+ Add new...</option>
+                                </select>
+                            }
+                            else
+                            {
+                                <span class="grid-nav-cell" title="Sourced from the named person's own pool">@(row.PoolName ?? "(none)")</span>
+                            }
                         </td>
                         @foreach (var mv in row.Months)
                         {
@@ -215,6 +238,7 @@ else
     private List<Team> _teams = new();
     private List<Role> _roles = new();
     private List<Person> _people = new();
+    private List<ResourcePool> _pools = new();
     private List<Workstream> _workstreams = new();
     private List<TeamTemplateAssignment> _allAssignments = new();
     private List<Template> _templates = new();
@@ -233,6 +257,7 @@ else
     private int? _newTemplateId;
     private int? _newRoleId;
     private int? _newPersonId;
+    private int? _newPoolId;
     private int? _newWorkstreamId;
 
     // Text filters (case-insensitive "contains") applied to the currently
@@ -242,6 +267,7 @@ else
     private string _filterWorkstream = string.Empty;
     private string _filterRole = string.Empty;
     private string _filterPerson = string.Empty;
+    private string _filterPool = string.Empty;
 
     // Frozen (sticky) leading-column widths and the "collapse column" toggles
     // that let the user hide the optional Template/Workstream columns to
@@ -259,6 +285,7 @@ else
     private int WorkstreamColWidth = 120;
     private int RoleColWidth = 120;
     private int PersonColWidth = 130;
+    private int PoolColWidth = 130;
     private int MonthColWidth = 56;
     private const int MinFrozenColWidth = 60;
     private const int MinMonthColWidth = 36;
@@ -268,10 +295,11 @@ else
     private int WorkstreamLeft => TemplateLeft + (_showTemplateColumn ? TemplateColWidth : 0);
     private int RoleLeft => WorkstreamLeft + (_showWorkstreamColumn ? WorkstreamColWidth : 0);
     private int PersonLeft => RoleLeft + RoleColWidth;
+    private int PoolLeft => PersonLeft + PersonColWidth;
     private const int HeaderRowHeight = 30;
 
-    private int FrozenColumnCount => 3 + (_showTemplateColumn ? 1 : 0) + (_showWorkstreamColumn ? 1 : 0);
-    private int TotalFrozenWidth => PersonLeft + PersonColWidth;
+    private int FrozenColumnCount => 4 + (_showTemplateColumn ? 1 : 0) + (_showWorkstreamColumn ? 1 : 0);
+    private int TotalFrozenWidth => PoolLeft + PoolColWidth;
 
     // table-layout:fixed only reliably fixes each column's rendered width
     // (rather than falling back to content-based auto sizing, which is what
@@ -337,6 +365,9 @@ else
             case "person":
                 PersonColWidth = Math.Max(MinFrozenColWidth, PersonColWidth + delta);
                 break;
+            case "pool":
+                PoolColWidth = Math.Max(MinFrozenColWidth, PoolColWidth + delta);
+                break;
             case "month":
                 MonthColWidth = Math.Max(MinMonthColWidth, MonthColWidth + delta);
                 break;
@@ -354,6 +385,7 @@ else
         _teams = await Db.Teams.Where(t => t.ProgramId == _programId).OrderBy(t => t.Name).ToListAsync();
         _roles = await Db.Roles.Where(r => r.ProgramId == _programId).OrderBy(r => r.Name).ToListAsync();
         _people = await Db.People.Where(p => p.ProgramId == _programId).OrderBy(p => p.DisplayName).ToListAsync();
+        _pools = await Db.ResourcePools.Where(p => p.ProgramId == _programId).OrderBy(p => p.Name).ToListAsync();
         _workstreams = await Db.Workstreams.Where(w => w.ProgramId == _programId).OrderBy(w => w.Name).ToListAsync();
         _allAssignments = await Db.TeamTemplateAssignments.Include(a => a.Template).Include(a => a.Team)
             .OrderBy(a => a.Template!.Name).ThenBy(a => a.Team!.Name).ToListAsync();
@@ -381,6 +413,8 @@ else
             query = query.Where(r => r.RoleName.Contains(_filterRole, StringComparison.OrdinalIgnoreCase));
         if (!string.IsNullOrWhiteSpace(_filterPerson))
             query = query.Where(r => (r.PersonName ?? "").Contains(_filterPerson, StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(_filterPool))
+            query = query.Where(r => (r.PoolName ?? "").Contains(_filterPool, StringComparison.OrdinalIgnoreCase));
 
         return query.ToList();
     }
@@ -479,7 +513,7 @@ else
             assignmentId = assignment.Id;
         }
 
-        var key = new ResourcePlanRowKey(_scenarioId, _newTeamId.Value, assignmentId, null, _newWorkstreamId, null, _newRoleId.Value, _newPersonId);
+        var key = new ResourcePlanRowKey(_scenarioId, _newTeamId.Value, assignmentId, null, _newWorkstreamId, null, _newRoleId.Value, _newPersonId, _newPersonId is null ? _newPoolId : null);
         foreach (var ((year, month), fte) in _newRowPending)
         {
             await GridService.UpdateCellAsync(_programId, key, _horizonStart, _horizonEnd, year, month, fte);
@@ -489,7 +523,7 @@ else
         // Resetting these fields (rather than converting this <tr> into a
         // regular row) is what keeps a fresh, always-present blank row at
         // the top of the grid ready for the next entry.
-        _newTeamId = null; _newTemplateId = null; _newRoleId = null; _newPersonId = null; _newWorkstreamId = null;
+        _newTeamId = null; _newTemplateId = null; _newRoleId = null; _newPersonId = null; _newPoolId = null; _newWorkstreamId = null;
         _newRowBlocked = false;
         _newRowPending.Clear();
         _newRowGeneration++;
@@ -519,7 +553,7 @@ else
     {
         var (proceed, teamId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreateTeamAsync(_programId, name), t => t.Id);
         if (!proceed || teamId is null) { StateHasChanged(); return; }
-        await GridService.UpdateRowContextAsync(row.Key, teamId.Value, row.Key.TeamTemplateAssignmentId, row.Key.WorkstreamId, row.Key.RoleId, row.Key.PersonId);
+        await GridService.UpdateRowContextAsync(row.Key, teamId.Value, row.Key.TeamTemplateAssignmentId, row.Key.WorkstreamId, row.Key.RoleId, row.Key.PersonId, row.Key.ResourcePoolId);
         _status = $"Saved at {DateTime.Now:T}";
         await LoadAsync();
     }
@@ -539,7 +573,7 @@ else
             assignmentId = assignment.Id;
             await ReloadLookupsAsync();
         }
-        await GridService.UpdateRowContextAsync(row.Key, row.Key.TeamId, assignmentId, row.Key.WorkstreamId, row.Key.RoleId, row.Key.PersonId);
+        await GridService.UpdateRowContextAsync(row.Key, row.Key.TeamId, assignmentId, row.Key.WorkstreamId, row.Key.RoleId, row.Key.PersonId, row.Key.ResourcePoolId);
         _status = $"Saved at {DateTime.Now:T}";
         await LoadAsync();
     }
@@ -548,7 +582,7 @@ else
     {
         var (proceed, workstreamId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreateWorkstreamAsync(_programId, name), w => w.Id);
         if (!proceed) { StateHasChanged(); return; }
-        await GridService.UpdateRowContextAsync(row.Key, row.Key.TeamId, row.Key.TeamTemplateAssignmentId, workstreamId, row.Key.RoleId, row.Key.PersonId);
+        await GridService.UpdateRowContextAsync(row.Key, row.Key.TeamId, row.Key.TeamTemplateAssignmentId, workstreamId, row.Key.RoleId, row.Key.PersonId, row.Key.ResourcePoolId);
         _status = $"Saved at {DateTime.Now:T}";
         await LoadAsync();
     }
@@ -557,7 +591,7 @@ else
     {
         var (proceed, roleId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreateRoleAsync(_programId, name), r => r.Id);
         if (!proceed || roleId is null) { StateHasChanged(); return; }
-        await GridService.UpdateRowContextAsync(row.Key, row.Key.TeamId, row.Key.TeamTemplateAssignmentId, row.Key.WorkstreamId, roleId.Value, row.Key.PersonId);
+        await GridService.UpdateRowContextAsync(row.Key, row.Key.TeamId, row.Key.TeamTemplateAssignmentId, row.Key.WorkstreamId, roleId.Value, row.Key.PersonId, row.Key.ResourcePoolId);
         _status = $"Saved at {DateTime.Now:T}";
         await LoadAsync();
     }
@@ -566,7 +600,19 @@ else
     {
         var (proceed, personId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreatePersonAsync(_programId, name), p => p.Id);
         if (!proceed) { StateHasChanged(); return; }
-        await GridService.UpdateRowContextAsync(row.Key, row.Key.TeamId, row.Key.TeamTemplateAssignmentId, row.Key.WorkstreamId, row.Key.RoleId, personId);
+        // Naming a Person clears any proposed sourcing pool (the person's
+        // own pool becomes the effective source); clearing back to open
+        // demand leaves the pool unset until the user picks one.
+        await GridService.UpdateRowContextAsync(row.Key, row.Key.TeamId, row.Key.TeamTemplateAssignmentId, row.Key.WorkstreamId, row.Key.RoleId, personId, personId is null ? row.Key.ResourcePoolId : null);
+        _status = $"Saved at {DateTime.Now:T}";
+        await LoadAsync();
+    }
+
+    private async Task OnRowPoolChangedAsync(ResourcePlanGridRow row, ChangeEventArgs e)
+    {
+        var (proceed, poolId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreateResourcePoolAsync(_programId, name), p => p.Id);
+        if (!proceed) { StateHasChanged(); return; }
+        await GridService.UpdateRowContextAsync(row.Key, row.Key.TeamId, row.Key.TeamTemplateAssignmentId, row.Key.WorkstreamId, row.Key.RoleId, row.Key.PersonId, poolId);
         _status = $"Saved at {DateTime.Now:T}";
         await LoadAsync();
     }
@@ -604,7 +650,17 @@ else
     private async Task OnNewPersonChangedAsync(ChangeEventArgs e)
     {
         var (proceed, personId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreatePersonAsync(_programId, name), p => p.Id);
-        if (proceed) _newPersonId = personId;
+        if (proceed)
+        {
+            _newPersonId = personId;
+            if (personId is not null) _newPoolId = null;
+        }
+    }
+
+    private async Task OnNewPoolChangedAsync(ChangeEventArgs e)
+    {
+        var (proceed, poolId) = await ResolveOrCreateAsync(e.Value?.ToString(), name => Lookup.GetOrCreateResourcePoolAsync(_programId, name), p => p.Id);
+        if (proceed) _newPoolId = poolId;
     }
 
     /// <summary>

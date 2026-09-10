@@ -31,6 +31,7 @@ public class ExcelExportService
             .Include(r => r.Team)
             .Include(r => r.Role)
             .Include(r => r.Person)
+            .Include(r => r.ResourcePool)
             .Include(r => r.Workstream)
             .Include(r => r.FocusArea)
             .Include(r => r.TeamTemplateAssignment).ThenInclude(a => a!.Template)
@@ -69,7 +70,7 @@ public class ExcelExportService
         ws.Cell(1, 1).Style.Font.SetBold().Font.SetFontSize(16);
         ws.Cell(3, 1).Value = "This workbook contains the current resource plan across a multi-year timeline.";
         ws.Cell(4, 1).Value = "Resource Plan: one row per planning line, filterable via the column header dropdowns. Monthly columns hold FTE (0.25 = quarter FTE, 1.0 = one FTE).";
-        ws.Cell(5, 1).Value = "A populated Person means a named allocation. A blank Person means open (unfilled) demand.";
+        ws.Cell(5, 1).Value = "A populated Person means a named allocation. A blank Person means open (unfilled) demand; its Pool column names the proposed sourcing pool.";
         ws.Cell(6, 1).Value = "Template Plan: template phases with their date ranges, filterable, and a monthly timeline where an \"X\" marks the phase's active months (colored like a Gantt bar). Team assignments are not shown here - they are implied by the Team values already present on the Resource Plan sheet.";
         ws.Cell(7, 1).Value = "Reference Data: master lists (people, teams, roles, templates, workstreams, etc.).";
         ws.Cell(8, 1).Value = "Summary: filled/open FTE by month, gaps by role/team/template, and overallocated people.";
@@ -84,7 +85,7 @@ public class ExcelExportService
     {
         var ws = workbook.Worksheets.Add("Resource Plan");
 
-        string[] fixedHeaders = { "Template", "Phase", "Workstream", "Focus Area", "Team", "Role", "Person", "Notes" };
+        string[] fixedHeaders = { "Template", "Phase", "Workstream", "Focus Area", "Team", "Role", "Person", "Pool", "Notes" };
         for (var i = 0; i < fixedHeaders.Length; i++)
         {
             ws.Cell(1, i + 1).Value = fixedHeaders[i];
@@ -116,7 +117,12 @@ public class ExcelExportService
             ws.Cell(row, 5).Value = s.Team?.Name;
             ws.Cell(row, 6).Value = s.Role?.Name;
             ws.Cell(row, 7).Value = s.Person?.DisplayName;
-            ws.Cell(row, 8).Value = s.Notes;
+            // Pool only shown for open demand rows - once a Person is named,
+            // their own Resource Pool is the implicit source (see Reference
+            // Data > People for that mapping) so showing it here too could
+            // disagree with the Person's actual pool after re-import.
+            ws.Cell(row, 8).Value = s.Person is null ? s.ResourcePool?.Name : null;
+            ws.Cell(row, 9).Value = s.Notes;
 
             for (var i = 0; i < values.Count; i++)
             {
@@ -221,8 +227,8 @@ public class ExcelExportService
         var ws = workbook.Worksheets.Add("Reference Data");
         var col = 1;
 
-        col = WriteTable(ws, col, "People", (await _db.People.OrderBy(p => p.DisplayName).ToListAsync(ct))
-            .Select(p => new[] { p.DisplayName, p.EmployeeType, p.DefaultCapacityFte.ToString("0.##") }), new[] { "Name", "Employee Type", "Capacity FTE" });
+        col = WriteTable(ws, col, "People", (await _db.People.Include(p => p.ResourcePool).OrderBy(p => p.DisplayName).ToListAsync(ct))
+            .Select(p => new[] { p.DisplayName, p.ResourcePool?.Name ?? string.Empty, p.DefaultCapacityFte.ToString("0.##") }), new[] { "Name", "Resource Pool", "Capacity FTE" });
 
         col = WriteTable(ws, col, "Teams", (await _db.Teams.OrderBy(t => t.Name).ToListAsync(ct))
             .Select(t => new[] { t.Name, t.TeamType }), new[] { "Name", "Team Type" });
@@ -241,6 +247,10 @@ public class ExcelExportService
 
         col = WriteTable(ws, col, "Sites", (await _db.Sites.OrderBy(s => s.Name).ToListAsync(ct))
             .Select(s => new[] { s.Name, s.Region ?? string.Empty }), new[] { "Name", "Region" });
+
+        col = WriteTable(ws, col, "Resource Pools", (await _db.ResourcePools.OrderBy(p => p.Name).ToListAsync(ct))
+            .Select(p => new[] { p.Name, p.Type.ToString(), p.CostCenter ?? string.Empty, p.AverageRate.ToString("0.00"), p.Vendor ?? string.Empty, p.Notes ?? string.Empty }),
+            new[] { "Name", "Type", "Cost Center", "Average Rate", "Vendor", "Notes" });
 
         ws.Columns().AdjustToContents();
     }
@@ -276,7 +286,7 @@ public class ExcelExportService
     private const int RpTeamCol = 5;
     private const int RpRoleCol = 6;
     private const int RpPersonCol = 7;
-    private const int RpFirstMonthCol = 9;
+    private const int RpFirstMonthCol = 10;
 
     // A generous fixed row bound (rather than a true whole-column
     // reference) so header-row cells - which hold text like "Person" or a

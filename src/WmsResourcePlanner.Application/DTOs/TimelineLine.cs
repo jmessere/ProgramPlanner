@@ -15,7 +15,7 @@ public class TimelineLine
     public string RoleName { get; set; } = string.Empty;
     public string? PersonName { get; set; }
     public int? PersonId { get; set; }
-    public string? EmployeeType { get; set; }
+    public string? PoolName { get; set; }
     public string? TeamType { get; set; }
     public DateOnly StartDate { get; set; }
     public DateOnly EndDate { get; set; }

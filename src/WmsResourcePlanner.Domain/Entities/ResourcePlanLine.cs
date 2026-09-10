@@ -52,6 +52,16 @@ public class ResourcePlanLine : BaseEntity
 
     public Person? Person { get; set; }
 
+    /// <summary>
+    /// Proposed sourcing pool for this line's open demand (only meaningful
+    /// when PersonId is null). Once a Person is assigned, that Person's own
+    /// ResourcePoolId is the effective source and this field is normally
+    /// left null.
+    /// </summary>
+    public int? ResourcePoolId { get; set; }
+
+    public ResourcePool? ResourcePool { get; set; }
+
     public DateOnly StartDate { get; set; }
 
     public DateOnly EndDate { get; set; }

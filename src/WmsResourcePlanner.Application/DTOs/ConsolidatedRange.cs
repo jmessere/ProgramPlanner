@@ -18,5 +18,6 @@ public static class ResourcePlanRowKeyExtensions
         line.WorkstreamId,
         line.FocusAreaId,
         line.RoleId,
-        line.PersonId);
+        line.PersonId,
+        line.ResourcePoolId);
 }

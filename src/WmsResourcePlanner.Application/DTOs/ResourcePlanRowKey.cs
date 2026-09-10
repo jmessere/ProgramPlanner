@@ -13,4 +13,5 @@ public sealed record ResourcePlanRowKey(
     int? WorkstreamId,
     int? FocusAreaId,
     int RoleId,
-    int? PersonId);
+    int? PersonId,
+    int? ResourcePoolId = null);

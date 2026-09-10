@@ -143,10 +143,20 @@ public static class SeedData
         TeamTemplateAssignment A(string teamName, int templateId) =>
             assignments.Single(a => a.TeamId == T(teamName).Id && a.TemplateId == templateId);
 
+        // ---- Resource Pools ----
+        var pools = new List<ResourcePool>
+        {
+            new() { ProgramId = program.Id, Name = "Internal FTE", Type = ResourcePoolType.Internal, CostCenter = "CC-1000", AverageRate = 95m, Active = true },
+            new() { ProgramId = program.Id, Name = "Contractor Pool", Type = ResourcePoolType.External, CostCenter = "CC-1000", AverageRate = 135m, Vendor = "Acme Staffing", Active = true },
+            new() { ProgramId = program.Id, Name = "Professional Services", Type = ResourcePoolType.External, AverageRate = 175m, Vendor = "Northwind Consulting", Active = true },
+            new() { ProgramId = program.Id, Name = "Vendor - TBD", Type = ResourcePoolType.External, AverageRate = 150m, Notes = "Placeholder pool for unresolved vendor sourcing.", Active = true },
+        };
+        db.ResourcePools.AddRange(pools);
+        await db.SaveChangesAsync();
+
         // ---- People ----
         string[] firstNames = { "Jane", "Mike", "Sarah", "Mark", "Amy", "Chris", "Dana", "Evan", "Fiona", "George", "Hannah", "Ian", "Julia", "Kevin", "Laura", "Nathan", "Olivia", "Paul", "Quinn", "Rachel", "Sam", "Tara", "Uma", "Victor", "Wendy", "Xavier", "Yara", "Zack", "Beth", "Carl" };
         string[] lastNames = { "Smith", "Jones", "Lee", "Brown", "Patel", "Garcia", "Clark", "Davis", "Miller", "Wilson", "Moore", "Taylor", "Anderson", "Thomas", "Jackson", "White", "Harris", "Martin", "Thompson", "Young", "King", "Wright", "Lopez", "Hill", "Green", "Adams", "Baker", "Nelson", "Carter", "Mitchell" };
-        string[] employeeTypes = { "FTE", "Contractor", "Professional Services", "Vendor" };
 
         var people = new List<Person>();
         for (var i = 0; i < 30; i++)
@@ -160,7 +170,7 @@ public static class SeedData
                 LastName = last,
                 DisplayName = $"{first} {last}",
                 PrimaryRoleId = roles[i % roles.Count].Id,
-                EmployeeType = employeeTypes[i % employeeTypes.Length],
+                ResourcePoolId = pools[i % pools.Count].Id,
                 DefaultCapacityFte = 1.0m,
                 Active = true
             });
@@ -174,7 +184,7 @@ public static class SeedData
         {
             // Inbound T1 / Template 1: named + open demand, partial FTE.
             Line(program, baseline, T("Inbound T1"), A("Inbound T1", t1.Id), R("Business Analyst"), inbound, P("Jane"), 2027, 1, 2027, 6, 1.0m),
-            Line(program, baseline, T("Inbound T1"), A("Inbound T1", t1.Id), R("Business Analyst"), inbound, null, 2027, 1, 2027, 6, 0.5m, "Open BA demand"),
+            Line(program, baseline, T("Inbound T1"), A("Inbound T1", t1.Id), R("Business Analyst"), inbound, null, 2027, 1, 2027, 6, 0.5m, "Open BA demand", pools[1].Id),
             Line(program, baseline, T("Inbound T1"), A("Inbound T1", t1.Id), R("Developer"), inbound, P("Mike"), 2027, 2, 2027, 9, 1.0m),
 
             // Inbound T2 / Template 2.
@@ -204,7 +214,7 @@ public static class SeedData
             // Rollout teams.
             Line(program, baseline, T("Rollout Team A"), A("Rollout Team A", t1.Id), R("Deployment Lead"), null, P("George"), 2027, 10, 2028, 6, 1.0m),
             Line(program, baseline, T("Rollout Team B"), A("Rollout Team B", t2.Id), R("Site Lead"), null, P("Hannah"), 2028, 6, 2029, 2, 1.0m),
-            Line(program, baseline, T("Rollout Team C"), A("Rollout Team C", t3.Id), R("Trainer"), null, null, 2029, 4, 2029, 12, 1.0m, "Open trainer demand"),
+            Line(program, baseline, T("Rollout Team C"), A("Rollout Team C", t3.Id), R("Trainer"), null, null, 2029, 4, 2029, 12, 1.0m, "Open trainer demand", pools[2].Id),
             Line(program, baseline, T("Rollout Team D"), A("Rollout Team D", t4.Id), R("Deployment Lead"), null, P("Ian"), 2029, 12, 2030, 6, 1.0m),
 
             // Outbound.
@@ -218,7 +228,7 @@ public static class SeedData
 
     private static ResourcePlanLine Line(
         Program program, PlanningScenario scenario, Team team, TeamTemplateAssignment assignment, Role role,
-        Workstream? workstream, Person? person, int startYear, int startMonth, int endYear, int endMonth, decimal fte, string? notes = null) => new()
+        Workstream? workstream, Person? person, int startYear, int startMonth, int endYear, int endMonth, decimal fte, string? notes = null, int? resourcePoolId = null) => new()
     {
         ProgramId = program.Id,
         ScenarioId = scenario.Id,
@@ -227,6 +237,7 @@ public static class SeedData
         WorkstreamId = workstream?.Id,
         RoleId = role.Id,
         PersonId = person?.Id,
+        ResourcePoolId = person is null ? resourcePoolId : null,
         StartDate = new DateOnly(startYear, startMonth, 1),
         EndDate = new DateOnly(endYear, endMonth, DateTime.DaysInMonth(endYear, endMonth)),
         Fte = fte,

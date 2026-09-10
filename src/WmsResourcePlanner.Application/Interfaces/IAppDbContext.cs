@@ -32,6 +32,8 @@ public interface IAppDbContext
 
     DbSet<Person> People { get; }
 
+    DbSet<ResourcePool> ResourcePools { get; }
+
     DbSet<ResourcePlanLine> ResourcePlanLines { get; }
 
     DbSet<Site> Sites { get; }

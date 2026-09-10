@@ -1,0 +1,84 @@
+@page "/resource-pools"
+@rendermode InteractiveServer
+@inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
+@using Microsoft.EntityFrameworkCore
+@using WmsResourcePlanner.Domain.Entities
+
+<PageTitle>Resource Pools</PageTitle>
+<h1>Resource Pools</h1>
+<p>Resource pools describe where people are sourced from (internal vs. external, cost center, average rate, vendor). Each Person can be assigned a pool, and open (unfilled) Resource Plan demand can propose a pool it expects to be sourced from.</p>
+<p class="save-status">@_status</p>
+
+<table class="data-grid">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Cost Center</th>
+            <th>Average Rate</th>
+            <th>Vendor</th>
+            <th>Notes</th>
+            <th>Active</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var p in _pools)
+        {
+            <tr>
+                <td><input @bind="p.Name" @bind:after="() => SaveAsync(p)" /></td>
+                <td>
+                    <select @bind="p.Type" @bind:after="() => SaveAsync(p)">
+                        <option value="@ResourcePoolType.Internal">Internal</option>
+                        <option value="@ResourcePoolType.External">External</option>
+                    </select>
+                </td>
+                <td><input @bind="p.CostCenter" @bind:after="() => SaveAsync(p)" /></td>
+                <td><input type="number" step="0.01" min="0" @bind="p.AverageRate" @bind:after="() => SaveAsync(p)" /></td>
+                <td><input @bind="p.Vendor" @bind:after="() => SaveAsync(p)" /></td>
+                <td><input @bind="p.Notes" @bind:after="() => SaveAsync(p)" /></td>
+                <td><input type="checkbox" @bind="p.Active" @bind:after="() => SaveAsync(p)" /></td>
+            </tr>
+        }
+        <tr>
+            <td><input placeholder="New pool name..." @bind="_newName" @onkeyup="OnNewKeyUp" /></td>
+            <td colspan="6"><button class="btn" @onclick="AddAsync">+ Add Resource Pool</button></td>
+        </tr>
+    </tbody>
+</table>
+
+@code {
+    private List<ResourcePool> _pools = new();
+    private string _newName = string.Empty;
+    private string _status = string.Empty;
+    private int _programId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var program = await Db.Programs.FirstAsync();
+        _programId = program.Id;
+        _pools = await Db.ResourcePools.Where(p => p.ProgramId == _programId).OrderBy(p => p.Name).ToListAsync();
+    }
+
+    private async Task SaveAsync(ResourcePool p)
+    {
+        p.ModifiedUtc = DateTime.UtcNow;
+        await Db.SaveChangesAsync();
+        _status = $"Saved {p.Name} at {DateTime.Now:T}";
+    }
+
+    private async Task AddAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newName)) return;
+        var pool = new ResourcePool { ProgramId = _programId, Name = _newName.Trim(), Type = ResourcePoolType.Internal, Active = true };
+        Db.ResourcePools.Add(pool);
+        await Db.SaveChangesAsync();
+        _pools.Add(pool);
+        _pools = _pools.OrderBy(x => x.Name).ToList();
+        _newName = string.Empty;
+    }
+
+    private async Task OnNewKeyUp(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await AddAsync();
+    }
+}

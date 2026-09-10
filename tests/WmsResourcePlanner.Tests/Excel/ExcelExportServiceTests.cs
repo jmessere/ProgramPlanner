@@ -57,8 +57,8 @@ public class ExcelExportServiceTests
 
         var rpSheet = workbook.Worksheet("Resource Plan");
         Assert.Equal("Jane Smith", rpSheet.Cell(2, 7).GetString());
-        // Jan column is column 9 (8 fixed headers + 1); value should be 1.0
-        Assert.Equal(1.0, rpSheet.Cell(2, 9).GetDouble());
+        // Jan column is column 10 (9 fixed headers + 1); value should be 1.0
+        Assert.Equal(1.0, rpSheet.Cell(2, 10).GetDouble());
     }
 
     [Fact]
@@ -172,9 +172,9 @@ public class ExcelExportServiceTests
         Assert.True(summary.Cell(3, 3).HasFormula, "Open FTE cell should be a formula.");
         Assert.True(summary.Cell(3, 4).HasFormula, "Total Need cell should be a formula.");
 
-        // 12 months (Jan-Dec 2027) starting at column 9 -> Row Total FTE is column 21.
+        // 12 months (Jan-Dec 2027) starting at column 10 -> Row Total FTE is column 22.
         var rpSheet = workbook.Worksheet("Resource Plan");
-        Assert.Equal("Row Total FTE", rpSheet.Cell(1, 21).GetString());
-        Assert.True(rpSheet.Cell(2, 21).HasFormula);
+        Assert.Equal("Row Total FTE", rpSheet.Cell(1, 22).GetString());
+        Assert.True(rpSheet.Cell(2, 22).HasFormula);
     }
 }

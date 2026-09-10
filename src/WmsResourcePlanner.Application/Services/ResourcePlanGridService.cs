@@ -34,7 +34,8 @@ public class ResourcePlanGridService
             .Where(r => r.ScenarioId == scenarioId)
             .Include(r => r.Team)
             .Include(r => r.Role)
-            .Include(r => r.Person)
+            .Include(r => r.Person).ThenInclude(p => p!.ResourcePool)
+            .Include(r => r.ResourcePool)
             .Include(r => r.Workstream)
             .Include(r => r.TeamTemplateAssignment).ThenInclude(a => a!.Template)
             .Include(r => r.TemplatePhase).ThenInclude(p => p!.Template)
@@ -57,6 +58,7 @@ public class ResourcePlanGridService
                 WorkstreamName = s.Workstream?.Name,
                 RoleName = s.Role?.Name ?? string.Empty,
                 PersonName = s.Person?.DisplayName,
+                PoolName = s.Person?.ResourcePool?.Name ?? s.ResourcePool?.Name,
                 Months = values
             });
         }
@@ -83,7 +85,8 @@ public class ResourcePlanGridService
                 && r.WorkstreamId == key.WorkstreamId
                 && r.FocusAreaId == key.FocusAreaId
                 && r.RoleId == key.RoleId
-                && r.PersonId == key.PersonId)
+                && r.PersonId == key.PersonId
+                && r.ResourcePoolId == key.ResourcePoolId)
             .ToListAsync(ct);
 
         var monthly = _engine.ExpandToMonthly(existingLines, horizonStart, horizonEnd);
@@ -100,6 +103,7 @@ public class ResourcePlanGridService
             ProgramId = l.ProgramId, ScenarioId = l.ScenarioId, TeamId = l.TeamId,
             TeamTemplateAssignmentId = l.TeamTemplateAssignmentId, TemplatePhaseId = l.TemplatePhaseId,
             WorkstreamId = l.WorkstreamId, FocusAreaId = l.FocusAreaId, RoleId = l.RoleId, PersonId = l.PersonId,
+            ResourcePoolId = l.ResourcePoolId,
             StartDate = l.StartDate, EndDate = l.EndDate, Fte = l.Fte, Notes = l.Notes
         }).ToList();
 
@@ -121,6 +125,7 @@ public class ResourcePlanGridService
                 FocusAreaId = key.FocusAreaId,
                 RoleId = key.RoleId,
                 PersonId = key.PersonId,
+                ResourcePoolId = key.ResourcePoolId,
                 StartDate = range.StartDate,
                 EndDate = range.EndDate,
                 Fte = range.Fte,
@@ -148,7 +153,8 @@ public class ResourcePlanGridService
                     && r.WorkstreamId == key.WorkstreamId
                     && r.FocusAreaId == key.FocusAreaId
                     && r.RoleId == key.RoleId
-                    && r.PersonId == key.PersonId)
+                    && r.PersonId == key.PersonId
+                    && r.ResourcePoolId == key.ResourcePoolId)
                 .ToListAsync();
             foreach (var line in current) _db.ResourcePlanLines.Remove(line);
             foreach (var s in snapshot)
@@ -158,6 +164,7 @@ public class ResourcePlanGridService
                     ProgramId = s.ProgramId, ScenarioId = s.ScenarioId, TeamId = s.TeamId,
                     TeamTemplateAssignmentId = s.TeamTemplateAssignmentId, TemplatePhaseId = s.TemplatePhaseId,
                     WorkstreamId = s.WorkstreamId, FocusAreaId = s.FocusAreaId, RoleId = s.RoleId, PersonId = s.PersonId,
+                    ResourcePoolId = s.ResourcePoolId,
                     StartDate = s.StartDate, EndDate = s.EndDate, Fte = s.Fte, Notes = s.Notes
                 });
             }
@@ -176,6 +183,7 @@ public class ResourcePlanGridService
     public async Task UpdateRowContextAsync(
         ResourcePlanRowKey oldKey,
         int newTeamId, int? newAssignmentId, int? newWorkstreamId, int newRoleId, int? newPersonId,
+        int? newResourcePoolId = null,
         CancellationToken ct = default)
     {
         var lines = await _db.ResourcePlanLines
@@ -186,13 +194,14 @@ public class ResourcePlanGridService
                 && r.WorkstreamId == oldKey.WorkstreamId
                 && r.FocusAreaId == oldKey.FocusAreaId
                 && r.RoleId == oldKey.RoleId
-                && r.PersonId == oldKey.PersonId)
+                && r.PersonId == oldKey.PersonId
+                && r.ResourcePoolId == oldKey.ResourcePoolId)
             .ToListAsync(ct);
 
         if (lines.Count == 0) return;
 
         var original = lines.Select(l => (
-            l.Id, l.TeamId, l.TeamTemplateAssignmentId, l.WorkstreamId, l.RoleId, l.PersonId)).ToList();
+            l.Id, l.TeamId, l.TeamTemplateAssignmentId, l.WorkstreamId, l.RoleId, l.PersonId, l.ResourcePoolId)).ToList();
 
         foreach (var line in lines)
         {
@@ -201,6 +210,7 @@ public class ResourcePlanGridService
             line.WorkstreamId = newWorkstreamId;
             line.RoleId = newRoleId;
             line.PersonId = newPersonId;
+            line.ResourcePoolId = newPersonId is null ? newResourcePoolId : null;
         }
 
         await _db.SaveChangesAsync(ct);
@@ -209,8 +219,8 @@ public class ResourcePlanGridService
             "ResourcePlanLine",
             newTeamId,
             "GridRowContextEdit",
-            new { oldKey.TeamId, oldKey.TeamTemplateAssignmentId, oldKey.WorkstreamId, oldKey.RoleId, oldKey.PersonId },
-            new { newTeamId, newAssignmentId, newWorkstreamId, newRoleId, newPersonId },
+            new { oldKey.TeamId, oldKey.TeamTemplateAssignmentId, oldKey.WorkstreamId, oldKey.RoleId, oldKey.PersonId, oldKey.ResourcePoolId },
+            new { newTeamId, newAssignmentId, newWorkstreamId, newRoleId, newPersonId, newResourcePoolId },
             ct);
 
         _undo.Push("Resource Plan row edit", async () =>
@@ -225,6 +235,7 @@ public class ResourcePlanGridService
                 line.WorkstreamId = o.WorkstreamId;
                 line.RoleId = o.RoleId;
                 line.PersonId = o.PersonId;
+                line.ResourcePoolId = o.ResourcePoolId;
             }
             await _db.SaveChangesAsync();
         });

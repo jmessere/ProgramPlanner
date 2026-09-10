@@ -754,7 +754,7 @@ DisplayName
 PrimaryRoleId nullable
 Organization nullable
 Location nullable
-EmployeeType
+ResourcePoolId nullable
 AvailableStartDate nullable
 AvailableEndDate nullable
 DefaultCapacityFte
@@ -770,17 +770,7 @@ Default:
 DefaultCapacityFte = 1.0
 ```
 
-Examples of EmployeeType:
-
-```text
-FTE
-Contractor
-Professional Services
-Vendor
-TBD
-```
-
-Employee Type should be extensible.
+`ResourcePoolId` replaces the earlier free-text `EmployeeType` field and links to a `ResourcePool` (see §24a). It indicates where the person is sourced from (e.g. Internal FTE, Contractor Pool, Professional Services, a named vendor). It is optional/nullable.
 
 ---
 
@@ -838,6 +828,7 @@ FocusAreaId nullable
 RoleId
 
 PersonId nullable
+ResourcePoolId nullable
 
 StartDate
 EndDate
@@ -848,6 +839,8 @@ Notes
 CreatedUtc
 ModifiedUtc
 ```
+
+`ResourcePoolId` is only meaningful when `PersonId` is null (open demand). It represents the pool the open demand is proposed to be sourced from. Once a Person is named, the person's own `ResourcePoolId` is the effective source and the line's own `ResourcePoolId` is cleared.
 
 `Fte` is the common unit.
 
@@ -862,6 +855,40 @@ Examples:
 ```
 
 A named person's `0.50 FTE` normally represents 50% allocation for a person whose capacity is 1.0 FTE.
+
+---
+
+# 24a. Resource Pools
+
+Entity:
+
+```text
+ResourcePool
+```
+
+Fields:
+
+```text
+Id
+ProgramId
+Name
+Type (Internal | External)
+CostCenter nullable
+AverageRate
+Vendor nullable
+Notes nullable
+Active
+CreatedUtc
+ModifiedUtc
+```
+
+Resource Pools describe where people (or open demand) are sourced from — for example Internal FTE, Contractor Pool, Professional Services, or a named vendor. `Vendor` allows rolling up multiple pools that belong to the same external vendor.
+
+Usage:
+
+* Each `Person` may optionally be assigned a `ResourcePool` (`Person.ResourcePoolId`).
+* Each open-demand `ResourcePlanLine` (Person == null) may optionally propose a `ResourcePool` it expects to be sourced from.
+* Pools are configurable in the application UI (Configuration → Resource Pools) and are also included as Excel reference data so they can be maintained/imported from the spreadsheet.
 
 ---
 
@@ -1373,7 +1400,7 @@ Show:
 ```text
 Name
 Primary Role
-Employee Type
+Resource Pool
 Organization
 Location
 Capacity
@@ -1439,7 +1466,7 @@ Focus Area
 Team
 Role
 Person
-Employee Type
+Resource Pool
 Team Type
 ```
 
@@ -1612,7 +1639,7 @@ Focus Area
 Team
 Role
 Person
-Employee Type
+Resource Pool
 Team Type
 ```
 
@@ -2022,7 +2049,7 @@ Templates
 Workstreams
 Focus Areas
 Sites
-Employee Types
+Resource Pools
 Team Types
 ```
 

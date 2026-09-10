@@ -22,7 +22,7 @@ else
     <table class="data-grid" style="max-width:600px">
         <tbody>
             <tr><th>Primary Role</th><td>@(_primaryRoleName ?? "(none)")</td></tr>
-            <tr><th>Employee Type</th><td>@_person.EmployeeType</td></tr>
+            <tr><th>Resource Pool</th><td>@(_person.ResourcePool?.Name ?? "(none)")</td></tr>
             <tr><th>Organization</th><td>@_person.Organization</td></tr>
             <tr><th>Location</th><td>@_person.Location</td></tr>
             <tr><th>Capacity (FTE)</th><td>@_person.DefaultCapacityFte.ToString("0.##")</td></tr>
@@ -77,7 +77,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        _person = await Db.People.FirstOrDefaultAsync(p => p.Id == PersonId);
+        _person = await Db.People.Include(p => p.ResourcePool).FirstOrDefaultAsync(p => p.Id == PersonId);
         if (_person is null) return;
 
         if (_person.PrimaryRoleId is not null)
