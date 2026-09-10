@@ -55,3 +55,7 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Local dev database
+**/App_Data/*.db
+**/App_Data/*.db-*
