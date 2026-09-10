@@ -232,14 +232,17 @@ public class ExcelExportService
         var lastDataRow = row - 1;
 
         // In-cell dropdowns for Workstream/Team/Pool/Role, sourced live
-        // from the Reference Data sheet's master lists, so planners pick
-        // from existing values instead of retyping/mistyping them. Applied
-        // over a generous row range (not just the current data rows) so
-        // rows a planner adds later in Excel still get the dropdown.
-        var refWorkstreams = workbook.Worksheet("Reference Data").Range(3, refCols.WorkstreamsCol, 2 + Math.Max(refCols.WorkstreamsCount, 1), refCols.WorkstreamsCol);
-        var refTeams = workbook.Worksheet("Reference Data").Range(3, refCols.TeamsCol, 2 + Math.Max(refCols.TeamsCount, 1), refCols.TeamsCol);
-        var refPools = workbook.Worksheet("Reference Data").Range(3, refCols.ResourcePoolsCol, 2 + Math.Max(refCols.ResourcePoolsCount, 1), refCols.ResourcePoolsCol);
-        var refRoles = workbook.Worksheet("Reference Data").Range(3, refCols.RolesCol, 2 + Math.Max(refCols.RolesCount, 1), refCols.RolesCol);
+        // from the Reference Data sheet's master lists. The source ranges
+        // extend well past the current row count (RefDropdownMaxRow) so
+        // values a planner adds to Reference Data later - directly in
+        // Excel, without re-exporting - automatically show up in these
+        // dropdowns too. Likewise applied over a generous row range here
+        // (not just the current data rows) so rows added later in the
+        // Resource Plan table also get the dropdown.
+        var refWorkstreams = workbook.Worksheet("Reference Data").Range(3, refCols.WorkstreamsCol, RefDropdownMaxRow, refCols.WorkstreamsCol);
+        var refTeams = workbook.Worksheet("Reference Data").Range(3, refCols.TeamsCol, RefDropdownMaxRow, refCols.TeamsCol);
+        var refPools = workbook.Worksheet("Reference Data").Range(3, refCols.ResourcePoolsCol, RefDropdownMaxRow, refCols.ResourcePoolsCol);
+        var refRoles = workbook.Worksheet("Reference Data").Range(3, refCols.RolesCol, RefDropdownMaxRow, refCols.RolesCol);
 
         // Warning (not Stop) error style: dropdowns are a convenience, not
         // a hard restriction, so a planner can still type a brand-new
@@ -310,18 +313,14 @@ public class ExcelExportService
         return new ResourcePlanSheetLayout(resourcePlanHeaderRow, firstDataRow, Math.Max(lastDataRow, firstDataRow - 1));
     }
 
-    /// <summary>Column positions (and row counts) of key Reference Data
-    /// tables, captured while building that sheet so the Summary sheet can
-    /// build live VLOOKUP formulas against them, and the Resource Plan
-    /// sheet can wire up in-cell dropdowns against them, instead of
-    /// hardcoding column numbers/ranges that would silently drift if the
-    /// reference table order/width ever changes.</summary>
+    /// <summary>Column positions of key Reference Data tables, captured
+    /// while building that sheet so the Summary sheet can build live
+    /// VLOOKUP formulas against them, and the Resource Plan sheet can wire
+    /// up in-cell dropdowns against them, instead of hardcoding column
+    /// numbers/ranges that would silently drift if the reference table
+    /// order/width ever changes.</summary>
     private readonly record struct ReferenceDataColumns(
-        int PeopleCol,
-        int TeamsCol, int TeamsCount,
-        int RolesCol, int RolesCount,
-        int WorkstreamsCol, int WorkstreamsCount,
-        int ResourcePoolsCol, int ResourcePoolsCount);
+        int PeopleCol, int TeamsCol, int RolesCol, int WorkstreamsCol, int ResourcePoolsCol);
 
     private async Task<ReferenceDataColumns> BuildReferenceDataSheetAsync(XLWorkbook workbook, List<ResourcePool> pools, CancellationToken ct)
     {
@@ -367,24 +366,18 @@ public class ExcelExportService
             new[] { "Name", "Type", "Cost Center", "Average Rate", "Vendor", "Notes" });
 
         // In-cell dropdown for People's "Resource Pool" column, sourced
-        // live from the Resource Pools list above, so pools are picked
-        // from the master list instead of retyped/mistyped.
-        if (people.Count > 0)
-        {
-            var poolNameRange = ws.Range(3, resourcePoolsCol, 2 + Math.Max(pools.Count, 1), resourcePoolsCol);
-            var poolDv = ws.Range(3, peopleCol + 1, 2 + people.Count, peopleCol + 1).CreateDataValidation();
-            poolDv.List(poolNameRange, true);
-            poolDv.ErrorStyle = XLErrorStyle.Warning;
-        }
+        // live from the Resource Pools list above. Both the source range
+        // (Resource Pools) and the target range (People rows) extend well
+        // past current row counts (RefDropdownMaxRow) so pools/people
+        // added later directly in Excel are automatically covered.
+        var poolNameRange = ws.Range(3, resourcePoolsCol, RefDropdownMaxRow, resourcePoolsCol);
+        var poolDv = ws.Range(3, peopleCol + 1, RefDropdownMaxRow, peopleCol + 1).CreateDataValidation();
+        poolDv.List(poolNameRange, true);
+        poolDv.ErrorStyle = XLErrorStyle.Warning;
 
         ws.Columns().AdjustToContents();
 
-        return new ReferenceDataColumns(
-            peopleCol,
-            teamsCol, teams.Count,
-            rolesCol, roles.Count,
-            workstreamsCol, workstreams.Count,
-            resourcePoolsCol, pools.Count);
+        return new ReferenceDataColumns(peopleCol, teamsCol, rolesCol, workstreamsCol, resourcePoolsCol);
     }
 
     private static int WriteTable(IXLWorksheet ws, int startCol, string title, IEnumerable<string[]> rows, string[] headers)
@@ -425,6 +418,14 @@ public class ExcelExportService
     // reference) so header-row cells - which hold text like "Person" or a
     // month date serial - are never swept into the sums below.
     private const int RpMaxDataRow = 100000;
+
+    // Generous fixed row bound for dropdown source/target ranges on the
+    // Reference Data sheet (used by both the Resource Plan and Reference
+    // Data dropdowns) - large enough that a planner can add many new
+    // rows to a Reference Data list directly in Excel and have them show
+    // up in dependent dropdowns automatically, without needing to
+    // re-export.
+    private const int RefDropdownMaxRow = 5000;
 
     private void BuildSummarySheet(XLWorkbook workbook, List<DateOnly> months, List<ResourcePlanLine> lines, List<ResourcePool> pools, ReferenceDataColumns refCols, ResourcePlanSheetLayout rpLayout)
     {

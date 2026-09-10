@@ -2130,6 +2130,12 @@ Dropdowns are conveniences, not restrictions: validation uses the Warning
 error style (not Stop), so a user typing a brand-new value not yet in the
 list gets a warning prompt but can still keep it.
 
+Each dropdown's source range on the Reference Data sheet extends well
+past that list's current row count (rather than stopping exactly at the
+last populated row), so a user who appends new rows to a Reference Data
+list directly in Excel (e.g. a new Resource Pool or Team) sees those new
+values in dependent dropdowns immediately, without needing to re-export.
+
 ---
 
 # 76. Summary Worksheet
