@@ -149,8 +149,12 @@ public class ExcelExportService
         // Team assignments are intentionally not shown here (per product
         // direction): a Team's association with a Template is already
         // implied by the Team values on the Resource Plan sheet, so this
-        // sheet only needs to show Templates and their Phases.
-        string[] headers = { "Template", "Phase", "Start Date", "End Date", "Notes" };
+        // sheet only needs to show Templates and their Phases. Start/End
+        // Date columns are intentionally omitted too: the monthly "X"
+        // marks are the single source of truth for a phase's dates (both
+        // on export and on re-import), so showing separate date columns
+        // that could disagree with the X's would be confusing.
+        string[] headers = { "Template", "Phase", "Notes" };
         for (var i = 0; i < headers.Length; i++) ws.Cell(1, i + 1).Value = headers[i];
 
         var firstMonthCol = headers.Length + 1;
@@ -172,11 +176,7 @@ public class ExcelExportService
         {
             ws.Cell(row, 1).Value = p.Template?.Name;
             ws.Cell(row, 2).Value = p.Name;
-            ws.Cell(row, 3).Value = p.StartDate.ToDateTime(TimeOnly.MinValue);
-            ws.Cell(row, 3).Style.DateFormat.Format = "mmm-yy";
-            ws.Cell(row, 4).Value = p.EndDate.ToDateTime(TimeOnly.MinValue);
-            ws.Cell(row, 4).Style.DateFormat.Format = "mmm-yy";
-            ws.Cell(row, 5).Value = p.Notes;
+            ws.Cell(row, 3).Value = p.Notes;
 
             var lastXCol = -1;
             for (var i = 0; i < months.Count; i++)

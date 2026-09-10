@@ -119,20 +119,22 @@ public class ExcelExportServiceTests
         using var workbook = new ClosedXML.Excel.XLWorkbook(stream);
 
         var tpSheet = workbook.Worksheet("Template Plan");
-        var headers = Enumerable.Range(1, 5).Select(c => tpSheet.Cell(1, c).GetString()).ToList();
+        var headers = Enumerable.Range(1, 3).Select(c => tpSheet.Cell(1, c).GetString()).ToList();
         Assert.DoesNotContain("Team", headers);
-        Assert.Equal(new[] { "Template", "Phase", "Start Date", "End Date", "Notes" }, headers);
+        Assert.DoesNotContain("Start Date", headers);
+        Assert.DoesNotContain("End Date", headers);
+        Assert.Equal(new[] { "Template", "Phase", "Notes" }, headers);
 
         Assert.Equal("Std Rollout", tpSheet.Cell(2, 1).GetString());
         Assert.Equal("Design", tpSheet.Cell(2, 2).GetString());
 
-        // Month columns start at 6; Feb/Mar/Apr 2027 should be marked "X",
+        // Month columns start at 4; Feb/Mar/Apr 2027 should be marked "X",
         // Jan and May should not.
-        Assert.Equal("", tpSheet.Cell(2, 6).GetString()); // Jan 2027
-        Assert.Equal("X", tpSheet.Cell(2, 7).GetString()); // Feb 2027
-        Assert.Equal("X", tpSheet.Cell(2, 8).GetString()); // Mar 2027
-        Assert.Equal("X", tpSheet.Cell(2, 9).GetString()); // Apr 2027
-        Assert.Equal("", tpSheet.Cell(2, 10).GetString()); // May 2027
+        Assert.Equal("", tpSheet.Cell(2, 4).GetString()); // Jan 2027
+        Assert.Equal("X", tpSheet.Cell(2, 5).GetString()); // Feb 2027
+        Assert.Equal("X", tpSheet.Cell(2, 6).GetString()); // Mar 2027
+        Assert.Equal("X", tpSheet.Cell(2, 7).GetString()); // Apr 2027
+        Assert.Equal("", tpSheet.Cell(2, 8).GetString()); // May 2027
 
         Assert.True(tpSheet.AutoFilter.IsEnabled);
         Assert.True(tpSheet.ConditionalFormats.Any());

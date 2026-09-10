@@ -102,13 +102,13 @@ public static class ExcelImportParser
     /// <summary>
     /// Parses the "Template Plan" sheet into TemplatePlanImportRow DTOs.
     /// Layout matches ExcelExportService.BuildTemplatePlanSheetAsync:
-    /// Template | Phase | Start Date | End Date | Notes, followed by one
-    /// column per month with an "X" marking that phase's active months.
-    /// When a row has any "X" marks, the derived Start/End Date is taken
-    /// from the first/last marked month (so adding/removing "X"s adjusts
-    /// the phase's dates on re-import); otherwise the explicit Start
-    /// Date/End Date cell values are used as-is (so a brand new phase row
-    /// can be created by typing dates without using the month grid).
+    /// Template | Phase | Notes, followed by one column per month with an
+    /// "X" marking that phase's active months. The "X" marks are the sole
+    /// source of truth for a phase's dates - there are no separate Start
+    /// Date/End Date columns that could disagree with them - so the
+    /// derived StartDate/EndDate always come from the first/last marked
+    /// month. A row with no "X" marks at all is an error (a new phase
+    /// must have at least one active month marked).
     /// </summary>
     public static List<TemplatePlanImportRow> ParseTemplatePlanSheet(Stream stream)
     {
@@ -124,7 +124,7 @@ public static class ExcelImportParser
         var headerRow = ws.Row(1);
         var lastColumn = ws.LastColumnUsed()?.ColumnNumber() ?? 0;
 
-        const int firstMonthColumn = 6;
+        const int firstMonthColumn = 4;
         var monthColumns = new List<(int Column, int Year, int Month)>();
         for (var c = firstMonthColumn; c <= lastColumn; c++)
         {
@@ -149,8 +149,7 @@ public static class ExcelImportParser
             var phaseName = row.Cell(2).GetString().Trim();
 
             if (string.IsNullOrWhiteSpace(templateName) && string.IsNullOrWhiteSpace(phaseName) &&
-                monthColumns.All(mc => row.Cell(mc.Column).IsEmpty()) &&
-                row.Cell(3).IsEmpty() && row.Cell(4).IsEmpty())
+                monthColumns.All(mc => row.Cell(mc.Column).IsEmpty()))
             {
                 continue;
             }
@@ -160,7 +159,7 @@ public static class ExcelImportParser
                 RowNumber = r,
                 TemplateName = templateName,
                 PhaseName = phaseName,
-                Notes = NullIfBlank(row.Cell(5).GetString())
+                Notes = NullIfBlank(row.Cell(3).GetString())
             };
 
             if (string.IsNullOrWhiteSpace(templateName)) importRow.Errors.Add("Template is required.");
@@ -180,27 +179,7 @@ public static class ExcelImportParser
             }
             else
             {
-                var startCell = row.Cell(3);
-                var endCell = row.Cell(4);
-
-                DateOnly? start = startCell.DataType == XLDataType.DateTime
-                    ? DateOnly.FromDateTime(startCell.GetDateTime())
-                    : DateOnly.TryParse(startCell.GetString(), out var parsedStart) ? parsedStart : null;
-
-                DateOnly? end = endCell.DataType == XLDataType.DateTime
-                    ? DateOnly.FromDateTime(endCell.GetDateTime())
-                    : DateOnly.TryParse(endCell.GetString(), out var parsedEnd) ? parsedEnd : null;
-
-                if (start is null) importRow.Errors.Add("Start Date is required (or mark active months with \"X\").");
-                if (end is null) importRow.Errors.Add("End Date is required (or mark active months with \"X\").");
-
-                importRow.StartDate = start;
-                importRow.EndDate = end;
-            }
-
-            if (importRow.StartDate is not null && importRow.EndDate is not null && importRow.StartDate > importRow.EndDate)
-            {
-                importRow.Errors.Add("Start Date must not be after End Date.");
+                importRow.Errors.Add("At least one month must be marked with \"X\" to set this phase's active date range.");
             }
 
             rows.Add(importRow);

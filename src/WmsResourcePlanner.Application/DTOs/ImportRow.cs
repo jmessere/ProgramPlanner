@@ -51,12 +51,11 @@ public class ImportPreviewItem
 /// <summary>
 /// A single parsed row from the "Template Plan" sheet of an uploaded
 /// workbook: one row per Template Phase. StartDate/EndDate are derived
-/// from whichever months carry an "X" mark in the sheet's monthly timeline
-/// columns when any are present (so adding/removing an "X" and
-/// re-importing adjusts the phase's dates); if no "X" marks are present
-/// the row's Start Date/End Date cell values are used instead, so a
-/// brand-new phase can still be typed in without needing to fill in the
-/// monthly grid by hand.
+/// solely from whichever months carry an "X" mark in the sheet's monthly
+/// timeline columns (there are no separate Start Date/End Date cells that
+/// could disagree with the X's) - so adding/removing an "X" and
+/// re-importing adjusts the phase's dates. A row with no "X" marks at all
+/// is flagged as an error.
 /// </summary>
 public class TemplatePlanImportRow
 {

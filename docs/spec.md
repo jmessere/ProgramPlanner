@@ -1978,8 +1978,6 @@ Columns:
 ```text
 Template
 Phase
-Start Date
-End Date
 Notes
 <one column per month in the planning horizon>
 ```
@@ -1987,24 +1985,26 @@ Notes
 Each row represents one Template Phase. The monthly columns mark that
 phase's active months with an "X" (conditionally formatted with the same
 color used for that phase elsewhere in the app, so the row reads like a
-Gantt bar). Start Date/End Date are also shown explicitly and stay in sync
-with the "X" marks.
+Gantt bar). There are intentionally no separate Start Date/End Date
+columns: the "X" marks are the single source of truth for a phase's dates,
+so showing dates alongside them (which could disagree) would be
+confusing.
 
-On re-import: if a row's "X" marks were added or removed, the phase's
-Start Date/End Date are derived from the first/last marked month and the
-Template Phase is updated accordingly. A row with no "X" marks falls back
-to its explicit Start Date/End Date cell values, which also supports
-typing in a brand-new phase without touching the monthly grid.
+On re-import, a phase's Start Date/End Date are always derived from the
+first/last month marked "X" in that row - adding or removing an "X" and
+re-importing adjusts the underlying Template Phase accordingly. A row with
+no "X" marks at all is flagged as an error (a phase must have at least one
+active month marked).
 
 The sheet supports Excel's standard AutoFilter column-header dropdowns for
 filtering by Template or Phase.
 
 Example (Jan-Jun 2027 shown):
 
-| Template | Phase  | Start Date | End Date | Notes | Jan-27 | Feb-27 | Mar-27 | Apr-27 | May-27 | Jun-27 |
-| -------- | ------ | ---------- | -------- | ----- | ------ | ------ | ------ | ------ | ------ | ------ |
-| T1       | Design | Jan 2027   | Mar 2027 |       | X      | X      | X      |        |        |        |
-| T1       | Build  | Apr 2027   | Jun 2027 |       |        |        |        | X      | X      | X      |
+| Template | Phase  | Notes | Jan-27 | Feb-27 | Mar-27 | Apr-27 | May-27 | Jun-27 |
+| -------- | ------ | ----- | ------ | ------ | ------ | ------ | ------ | ------ |
+| T1       | Design |       | X      | X      | X      |        |        |        |
+| T1       | Build  |       |        |        |        | X      | X      | X      |
 
 ---
 

@@ -106,9 +106,9 @@ public class ExcelImportServiceTests
         using (var wb = new ClosedXML.Excel.XLWorkbook(editStream))
         {
             var ws = wb.Worksheet("Template Plan");
-            Assert.Equal("X", ws.Cell(2, 9).GetString()); // Apr 2027
-            ws.Cell(2, 9).Value = string.Empty;
-            ws.Cell(2, 10).Value = "X"; // May 2027
+            Assert.Equal("X", ws.Cell(2, 7).GetString()); // Apr 2027
+            ws.Cell(2, 7).Value = string.Empty;
+            ws.Cell(2, 8).Value = "X"; // May 2027
             using var savedStream = new MemoryStream();
             wb.SaveAs(savedStream);
             bytes = savedStream.ToArray();
