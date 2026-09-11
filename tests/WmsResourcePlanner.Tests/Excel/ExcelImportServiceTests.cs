@@ -215,6 +215,124 @@ public class ExcelImportServiceTests
     }
 
     [Fact]
+    public async Task ParseReferenceDataSheet_And_CommitReferenceDataAsync_CreatesAndUpdatesEntitiesFromReferenceDataTables()
+    {
+        using var db = TestDbFactory.Create();
+
+        var program = new Program { Name = "P" };
+        db.Programs.Add(program);
+        await db.SaveChangesAsync();
+
+        var scenario = new PlanningScenario { ProgramId = program.Id, Name = "Baseline", IsBaseline = true };
+        db.PlanningScenarios.Add(scenario);
+        var existingPool = new ResourcePool { ProgramId = program.Id, Name = "Acme Contractors", Type = ResourcePoolType.External, AverageRate = 100m };
+        db.ResourcePools.Add(existingPool);
+        await db.SaveChangesAsync();
+
+        var exportService = new ExcelExportService(db, new ResourceTransformationService());
+        var bytes = await exportService.ExportAsync(scenario.Id, new DateOnly(2027, 1, 1), new DateOnly(2027, 6, 30));
+
+        using (var editStream = new MemoryStream(bytes))
+        using (var wb = new ClosedXML.Excel.XLWorkbook(editStream))
+        {
+            var ws = wb.Worksheet("Reference Data");
+            var lastCol = ws.LastColumnUsed()!.ColumnNumber();
+            int FindCol(string title) => Enumerable.Range(1, lastCol).First(c => ws.Cell(1, c).GetString() == title);
+
+            // Update the existing pool's rate, and add a brand new pool with full details.
+            var poolsCol = FindCol("Resource Pools");
+            Assert.Equal("Acme Contractors", ws.Cell(3, poolsCol).GetString());
+            ws.Cell(3, poolsCol + 3).Value = 125m; // Average Rate
+            ws.Cell(4, poolsCol).Value = "New Vendor Pool";
+            ws.Cell(4, poolsCol + 1).Value = "External";
+            ws.Cell(4, poolsCol + 2).Value = "CC-42";
+            ws.Cell(4, poolsCol + 3).Value = 88.5m;
+            ws.Cell(4, poolsCol + 4).Value = "Acme Vendor Inc";
+            ws.Cell(4, poolsCol + 5).Value = "Added via reference data";
+
+            // Add a new Person that sources from the newly added pool.
+            var peopleCol = FindCol("People");
+            var firstBlankPersonRow = 3;
+            while (!ws.Cell(firstBlankPersonRow, peopleCol).IsEmpty()) firstBlankPersonRow++;
+            ws.Cell(firstBlankPersonRow, peopleCol).Value = "New Contractor";
+            ws.Cell(firstBlankPersonRow, peopleCol + 1).Value = "New Vendor Pool";
+            ws.Cell(firstBlankPersonRow, peopleCol + 2).Value = 0.5m;
+
+            // Add a new Team, Role, Workstream, Focus Area, Site, Template too.
+            var teamsCol = FindCol("Teams");
+            var r = 3; while (!ws.Cell(r, teamsCol).IsEmpty()) r++;
+            ws.Cell(r, teamsCol).Value = "New Team";
+            ws.Cell(r, teamsCol + 1).Value = "Functional";
+
+            var rolesCol = FindCol("Roles");
+            r = 3; while (!ws.Cell(r, rolesCol).IsEmpty()) r++;
+            ws.Cell(r, rolesCol).Value = "New Role";
+            ws.Cell(r, rolesCol + 1).Value = "Technical";
+
+            var workstreamsCol = FindCol("Workstreams");
+            r = 3; while (!ws.Cell(r, workstreamsCol).IsEmpty()) r++;
+            ws.Cell(r, workstreamsCol).Value = "New Workstream";
+
+            var focusAreasCol = FindCol("Focus Areas");
+            r = 3; while (!ws.Cell(r, focusAreasCol).IsEmpty()) r++;
+            ws.Cell(r, focusAreasCol).Value = "New Focus Area";
+
+            var sitesCol = FindCol("Sites");
+            r = 3; while (!ws.Cell(r, sitesCol).IsEmpty()) r++;
+            ws.Cell(r, sitesCol).Value = "New Site";
+            ws.Cell(r, sitesCol + 1).Value = "EMEA";
+
+            var templatesCol = FindCol("Templates");
+            r = 3; while (!ws.Cell(r, templatesCol).IsEmpty()) r++;
+            ws.Cell(r, templatesCol).Value = "New Template";
+            ws.Cell(r, templatesCol + 1).Value = "Planned";
+
+            using var savedStream = new MemoryStream();
+            wb.SaveAs(savedStream);
+            bytes = savedStream.ToArray();
+        }
+
+        using var ms = new MemoryStream(bytes);
+        var refData = ExcelImportParser.ParseReferenceDataSheet(ms);
+
+        Assert.Contains(refData.ResourcePools, p => p.Name == "Acme Contractors" && p.AverageRate == 125m);
+        Assert.Contains(refData.ResourcePools, p => p.Name == "New Vendor Pool" && p.CostCenter == "CC-42" && p.Vendor == "Acme Vendor Inc" && p.AverageRate == 88.5m);
+        Assert.Contains(refData.People, p => p.Name == "New Contractor" && p.ResourcePoolName == "New Vendor Pool" && p.CapacityFte == 0.5m);
+        Assert.Contains(refData.Teams, t => t.Name == "New Team" && t.TeamType == "Functional");
+        Assert.Contains(refData.Roles, r => r.Name == "New Role" && r.Category == "Technical");
+        Assert.Contains(refData.Workstreams, w => w.Name == "New Workstream");
+        Assert.Contains(refData.FocusAreas, f => f.Name == "New Focus Area");
+        Assert.Contains(refData.Sites, s => s.Name == "New Site" && s.Region == "EMEA");
+        Assert.Contains(refData.Templates, t => t.Name == "New Template" && t.Status == "Planned");
+
+        var lookup = new LookupService(db);
+        var importService = new ImportService(db, lookup, new ResourceTransformationService());
+        var result = await importService.CommitReferenceDataAsync(program.Id, refData);
+
+        Assert.True(result.TotalProcessed > 0);
+
+        var updatedPool = db.ResourcePools.Single(p => p.Name == "Acme Contractors");
+        Assert.Equal(125m, updatedPool.AverageRate);
+
+        var newPool = db.ResourcePools.Single(p => p.Name == "New Vendor Pool");
+        Assert.Equal(ResourcePoolType.External, newPool.Type);
+        Assert.Equal("CC-42", newPool.CostCenter);
+        Assert.Equal(88.5m, newPool.AverageRate);
+        Assert.Equal("Acme Vendor Inc", newPool.Vendor);
+
+        var newPerson = db.People.Single(p => p.DisplayName == "New Contractor");
+        Assert.Equal(newPool.Id, newPerson.ResourcePoolId);
+        Assert.Equal(0.5m, newPerson.DefaultCapacityFte);
+
+        Assert.Contains(db.Teams.Local, t => t.Name == "New Team" && t.TeamType == "Functional");
+        Assert.Contains(db.Roles.Local, r => r.Name == "New Role" && r.Category == "Technical");
+        Assert.Contains(db.Workstreams.Local, w => w.Name == "New Workstream");
+        Assert.Contains(db.FocusAreas.Local, f => f.Name == "New Focus Area");
+        Assert.Contains(db.Sites.Local, s => s.Name == "New Site" && s.Region == "EMEA");
+        Assert.Contains(db.Templates.Local, t => t.Name == "New Template" && t.Status == TemplateStatus.Planned);
+    }
+
+    [Fact]
     public async Task Commit_NewTeamAndPerson_CreatesEntitiesAndOpenOrFilledAllocation()
     {
         // Mirrors SPEC.md Acceptance Scenario I: a workbook user adds a brand new

@@ -244,4 +244,72 @@ public class ImportService
 
         return committed;
     }
+
+    /// <summary>
+    /// Commits all Reference Data sheet rows (SPEC.md Reference Data
+    /// import): creates/updates People, Teams, Roles, Templates,
+    /// Workstreams, Focus Areas, Sites, and Resource Pools directly from
+    /// that sheet's master-data tables, independent of whether any of
+    /// those names are also referenced on the Resource Plan or Template
+    /// Plan tables. Resource Pools are processed first so a Person row's
+    /// ResourcePoolName can resolve against a pool created in the same
+    /// import pass.
+    /// </summary>
+    public async Task<ReferenceDataImportResult> CommitReferenceDataAsync(int programId, ReferenceDataImport data, CancellationToken ct = default)
+    {
+        var result = new ReferenceDataImportResult();
+
+        foreach (var row in data.ResourcePools)
+        {
+            var type = !string.IsNullOrWhiteSpace(row.Type) && Enum.TryParse<ResourcePoolType>(row.Type, true, out var parsedType)
+                ? parsedType
+                : ResourcePoolType.Internal;
+            await _lookup.UpsertResourcePoolAsync(programId, row.Name, type, row.CostCenter, row.AverageRate ?? 0m, row.Vendor, row.Notes, ct);
+            result.PoolsProcessed++;
+        }
+
+        foreach (var row in data.Workstreams)
+        {
+            await _lookup.UpsertWorkstreamAsync(programId, row.Name, ct);
+            result.WorkstreamsProcessed++;
+        }
+
+        foreach (var row in data.FocusAreas)
+        {
+            await _lookup.UpsertFocusAreaAsync(programId, row.Name, ct);
+            result.FocusAreasProcessed++;
+        }
+
+        foreach (var row in data.Teams)
+        {
+            await _lookup.UpsertTeamAsync(programId, row.Name, row.TeamType, ct);
+            result.TeamsProcessed++;
+        }
+
+        foreach (var row in data.Roles)
+        {
+            await _lookup.UpsertRoleAsync(programId, row.Name, row.Category, ct);
+            result.RolesProcessed++;
+        }
+
+        foreach (var row in data.Templates)
+        {
+            await _lookup.UpsertTemplateAsync(programId, row.Name, row.Status, ct);
+            result.TemplatesProcessed++;
+        }
+
+        foreach (var row in data.Sites)
+        {
+            await _lookup.UpsertSiteAsync(programId, row.Name, row.Region, ct);
+            result.SitesProcessed++;
+        }
+
+        foreach (var row in data.People)
+        {
+            await _lookup.UpsertPersonAsync(programId, row.Name, row.ResourcePoolName, row.CapacityFte ?? 1.0m, ct);
+            result.PeopleProcessed++;
+        }
+
+        return result;
+    }
 }

@@ -30,7 +30,11 @@
 <p>Upload a workbook with a "Resource Plan" sheet in the same layout as the export
 (Template Plan table on top, Resource Plan table below with Template | Phase | Workstream | Focus Area | Team | Role | Person | Notes, then one column per month).
 A blank Person is interpreted as open demand. New Teams, People, Roles, Workstreams, Focus Areas, and
-Templates named in the sheet that don't already exist are resolved/created automatically.</p>
+Templates named in the sheet that don't already exist are resolved/created automatically.
+If the workbook also has a "Reference Data" sheet, its People, Teams, Roles, Templates, Workstreams,
+Focus Areas, Sites, and Resource Pools tables are imported directly too - so adding a new Resource Pool
+row there (with Cost Center, Average Rate, Vendor, Notes) and re-importing updates that pool's full
+details, not just its name.</p>
 
 <InputFile OnChange="OnFileSelectedAsync" accept=".xlsx" />
 @if (_parseError is not null)
@@ -40,6 +44,20 @@ Templates named in the sheet that don't already exist are resolved/created autom
 @if (_templatePlanParseError is not null)
 {
     <p class="save-status" style="color:#b32121">@_templatePlanParseError</p>
+}
+@if (_referenceDataParseError is not null)
+{
+    <p class="save-status" style="color:#b32121">@_referenceDataParseError</p>
+}
+@if (_referenceData is not null && (_referenceData.People.Count + _referenceData.Teams.Count + _referenceData.Roles.Count + _referenceData.Templates.Count + _referenceData.Workstreams.Count + _referenceData.FocusAreas.Count + _referenceData.Sites.Count + _referenceData.ResourcePools.Count) > 0)
+{
+    <p>
+        Reference Data parsed: @_referenceData.People.Count people, @_referenceData.Teams.Count team(s),
+        @_referenceData.Roles.Count role(s), @_referenceData.Templates.Count template(s),
+        @_referenceData.Workstreams.Count workstream(s), @_referenceData.FocusAreas.Count focus area(s),
+        @_referenceData.Sites.Count site(s), @_referenceData.ResourcePools.Count resource pool(s).
+        These will be created/updated when you commit the import.
+    </p>
 }
 
 @if (_preview.Count > 0)
@@ -139,6 +157,8 @@ Templates named in the sheet that don't already exist are resolved/created autom
     private List<ImportPreviewItem> _preview = new();
     private List<TemplatePlanImportRow> _templatePlanRows = new();
     private string? _templatePlanParseError;
+    private ReferenceDataImport? _referenceData;
+    private string? _referenceDataParseError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -164,9 +184,11 @@ Templates named in the sheet that don't already exist are resolved/created autom
     {
         _parseError = null;
         _templatePlanParseError = null;
+        _referenceDataParseError = null;
         _preview.Clear();
         _parsedRows.Clear();
         _templatePlanRows.Clear();
+        _referenceData = null;
         _commitStatus = string.Empty;
 
         try
@@ -199,19 +221,39 @@ Templates named in the sheet that don't already exist are resolved/created autom
         {
             _templatePlanParseError = $"Could not read Template Plan table: {ex.Message}";
         }
+
+        try
+        {
+            await using var stream = e.File.OpenReadStream(maxAllowedSize: 20 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            ms.Position = 0;
+
+            // Reference Data sheet is optional too.
+            _referenceData = WmsResourcePlanner.Infrastructure.Excel.ExcelImportParser.ParseReferenceDataSheet(ms);
+        }
+        catch (Exception ex)
+        {
+            _referenceDataParseError = $"Could not read Reference Data sheet: {ex.Message}";
+        }
     }
 
     private async Task CommitAsync()
     {
         _committing = true;
+        var refResult = _referenceData is not null
+            ? await ImportService.CommitReferenceDataAsync(_programId, _referenceData)
+            : null;
         var count = await ImportService.CommitAsync(_programId, _importScenarioId, _parsedRows);
         var templatePlanCount = _templatePlanRows.Count > 0
             ? await ImportService.CommitTemplatePlanAsync(_programId, _templatePlanRows)
             : 0;
         _committing = false;
-        _commitStatus = templatePlanCount > 0
-            ? $"Imported {count} resource plan row(s) and {templatePlanCount} template phase(s) at {DateTime.Now:T}."
-            : $"Imported {count} row(s) into scenario at {DateTime.Now:T}.";
+
+        var parts = new List<string> { $"{count} resource plan row(s)" };
+        if (templatePlanCount > 0) parts.Add($"{templatePlanCount} template phase(s)");
+        if (refResult is not null && refResult.TotalProcessed > 0) parts.Add($"{refResult.TotalProcessed} reference data row(s)");
+        _commitStatus = $"Imported {string.Join(", ", parts)} at {DateTime.Now:T}.";
 
         // Refresh preview flags (entities just created are no longer "new").
         _preview = await ImportService.PreviewAsync(_programId, _parsedRows);

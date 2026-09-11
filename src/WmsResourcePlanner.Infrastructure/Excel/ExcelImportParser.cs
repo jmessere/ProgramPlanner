@@ -305,4 +305,174 @@ public static class ExcelImportParser
     }
 
     private static string? NullIfBlank(string s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    /// <summary>Finds the starting column of a Reference Data table by its
+    /// bold title cell in row 1 (see ExcelExportService.WriteTable). Titles
+    /// are matched case-insensitively so a user's minor re-casing doesn't
+    /// break parsing.</summary>
+    private static int? FindReferenceTableStartColumn(IXLWorksheet ws, string title)
+    {
+        var lastColumn = ws.LastColumnUsed()?.ColumnNumber() ?? 0;
+        for (var c = 1; c <= lastColumn; c++)
+        {
+            if (ws.Cell(1, c).GetString().Trim().Equals(title, StringComparison.OrdinalIgnoreCase))
+            {
+                return c;
+            }
+        }
+        return null;
+    }
+
+    private static decimal? TryParseDecimal(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return null;
+        return decimal.TryParse(s.Trim(), out var d) ? d : null;
+    }
+
+    /// <summary>
+    /// Parses all eight Reference Data master-data tables (People, Teams,
+    /// Roles, Templates, Workstreams, Focus Areas, Sites, Resource Pools)
+    /// from the "Reference Data" sheet. Each table's start column is
+    /// located by its title in row 1 (see ExcelExportService.WriteTable),
+    /// so this stays robust to tables being reordered/resized. Column
+    /// offsets within a table follow the fixed header order the exporter
+    /// writes (Name first, then any extra fields) - a table missing
+    /// entirely from the sheet (e.g. an older export) is simply skipped,
+    /// yielding an empty list for that entity type rather than an error.
+    /// </summary>
+    public static ReferenceDataImport ParseReferenceDataSheet(Stream stream)
+    {
+        using var workbook = new XLWorkbook(stream);
+        var ws = workbook.Worksheets.FirstOrDefault(w =>
+            string.Equals(w.Name, "Reference Data", StringComparison.OrdinalIgnoreCase));
+
+        var result = new ReferenceDataImport();
+        if (ws is null)
+        {
+            // Reference Data is optional - a workbook without one still
+            // supports Resource Plan / Template Plan import on their own.
+            return result;
+        }
+
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? 2;
+
+        var peopleCol = FindReferenceTableStartColumn(ws, "People");
+        if (peopleCol is int pc)
+        {
+            for (var r = 3; r <= lastRow; r++)
+            {
+                var name = ws.Cell(r, pc).GetString().Trim();
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                result.People.Add(new ReferencePersonRow
+                {
+                    Name = name,
+                    ResourcePoolName = NullIfBlank(ws.Cell(r, pc + 1).GetString()),
+                    CapacityFte = TryParseDecimal(ws.Cell(r, pc + 2).GetString())
+                });
+            }
+        }
+
+        var teamsCol = FindReferenceTableStartColumn(ws, "Teams");
+        if (teamsCol is int tc)
+        {
+            for (var r = 3; r <= lastRow; r++)
+            {
+                var name = ws.Cell(r, tc).GetString().Trim();
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                result.Teams.Add(new ReferenceTeamRow
+                {
+                    Name = name,
+                    TeamType = NullIfBlank(ws.Cell(r, tc + 1).GetString())
+                });
+            }
+        }
+
+        var rolesCol = FindReferenceTableStartColumn(ws, "Roles");
+        if (rolesCol is int rc)
+        {
+            for (var r = 3; r <= lastRow; r++)
+            {
+                var name = ws.Cell(r, rc).GetString().Trim();
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                result.Roles.Add(new ReferenceRoleRow
+                {
+                    Name = name,
+                    Category = NullIfBlank(ws.Cell(r, rc + 1).GetString())
+                });
+            }
+        }
+
+        var templatesCol = FindReferenceTableStartColumn(ws, "Templates");
+        if (templatesCol is int tpc)
+        {
+            for (var r = 3; r <= lastRow; r++)
+            {
+                var name = ws.Cell(r, tpc).GetString().Trim();
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                result.Templates.Add(new ReferenceTemplateRow
+                {
+                    Name = name,
+                    Status = NullIfBlank(ws.Cell(r, tpc + 1).GetString())
+                });
+            }
+        }
+
+        var workstreamsCol = FindReferenceTableStartColumn(ws, "Workstreams");
+        if (workstreamsCol is int wc)
+        {
+            for (var r = 3; r <= lastRow; r++)
+            {
+                var name = ws.Cell(r, wc).GetString().Trim();
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                result.Workstreams.Add(new ReferenceWorkstreamRow { Name = name });
+            }
+        }
+
+        var focusAreasCol = FindReferenceTableStartColumn(ws, "Focus Areas");
+        if (focusAreasCol is int fc)
+        {
+            for (var r = 3; r <= lastRow; r++)
+            {
+                var name = ws.Cell(r, fc).GetString().Trim();
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                result.FocusAreas.Add(new ReferenceFocusAreaRow { Name = name });
+            }
+        }
+
+        var sitesCol = FindReferenceTableStartColumn(ws, "Sites");
+        if (sitesCol is int sc)
+        {
+            for (var r = 3; r <= lastRow; r++)
+            {
+                var name = ws.Cell(r, sc).GetString().Trim();
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                result.Sites.Add(new ReferenceSiteRow
+                {
+                    Name = name,
+                    Region = NullIfBlank(ws.Cell(r, sc + 1).GetString())
+                });
+            }
+        }
+
+        var poolsCol = FindReferenceTableStartColumn(ws, "Resource Pools");
+        if (poolsCol is int plc)
+        {
+            for (var r = 3; r <= lastRow; r++)
+            {
+                var name = ws.Cell(r, plc).GetString().Trim();
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                result.ResourcePools.Add(new ReferenceResourcePoolRow
+                {
+                    Name = name,
+                    Type = NullIfBlank(ws.Cell(r, plc + 1).GetString()),
+                    CostCenter = NullIfBlank(ws.Cell(r, plc + 2).GetString()),
+                    AverageRate = TryParseDecimal(ws.Cell(r, plc + 3).GetString()),
+                    Vendor = NullIfBlank(ws.Cell(r, plc + 4).GetString()),
+                    Notes = NullIfBlank(ws.Cell(r, plc + 5).GetString())
+                });
+            }
+        }
+
+        return result;
+    }
 }

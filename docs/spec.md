@@ -2130,6 +2130,27 @@ This sheet may supply dropdown values.
 
 Users can maintain the lists directly.
 
+On import, each of these eight tables (People, Teams, Roles, Templates,
+Workstreams, Focus Areas, Sites, Resource Pools) is parsed directly and
+used to create or update the corresponding entity - this is independent
+of whether that name also appears anywhere on the Resource Plan or
+Template Plan tables. This means, for example, adding a brand new Resource
+Pool row here with its Cost Center/Average Rate/Vendor/Notes filled in,
+then re-importing the workbook, creates that pool with those exact
+details (not just a bare name defaulted to Internal/$0, which is all that
+happens when a new pool name is only referenced via the Resource Plan
+table's Pool column). Likewise, editing an existing row's fields (e.g.
+bumping a pool's Average Rate) and re-importing updates that entity - the
+Reference Data sheet is treated as the authoritative full state for the
+fields it exposes, so a field left blank on re-import clears it (Name is
+the only always-required field; Resource Pools default to Internal type
+and $0 rate if Type/Average Rate are blank or unparseable). Resource Pools
+are processed before People during import so a Person row's "Resource
+Pool" column can resolve against a pool added in the very same import
+pass. Each table's data rows are located by matching its bold title text
+in row 1 (not by fixed column numbers), so reordering the eight tables on
+the sheet doesn't break import.
+
 ---
 
 # 75. Excel Dropdowns
