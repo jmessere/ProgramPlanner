@@ -2634,6 +2634,22 @@ Warn on overallocation
 Timeline snapping = Month
 ```
 
+## Danger Zone: Clear All Data
+
+The Settings page includes a "Clear All Data" action (guarded by a typed
+confirmation phrase plus a JS confirm dialog) that permanently deletes
+every Team, Person, Role, Template, Template Phase, Workstream, Focus
+Area, Site, Resource Pool, Team-Template Assignment, Team Role, Team-Site
+Assignment, Resource Plan Line, Planning Scenario, and Audit Entry for the
+program - resetting the app to a fresh, empty state without requiring a
+full application restart or re-running migrations. The single Program row
+itself (its Name/Description/planning horizon) is preserved, since the
+rest of the app assumes exactly one Program always exists, and a brand
+new blank "Baseline" Planning Scenario is created immediately afterward,
+since most pages assume at least one baseline scenario exists. Users are
+directed to take a Backup (section 95) first, since this action cannot be
+undone.
+
 ---
 
 # 93. Performance Requirements

@@ -2,6 +2,9 @@
 @rendermode InteractiveServer
 @inject WmsResourcePlanner.Application.Interfaces.IAppDbContext Db
 @inject WmsResourcePlanner.Application.Services.HorizonService HorizonService
+@inject WmsResourcePlanner.Application.Services.DataResetService DataResetService
+@inject IJSRuntime JS
+@inject NavigationManager Nav
 @using Microsoft.EntityFrameworkCore
 @using WmsResourcePlanner.Domain.Entities
 
@@ -42,6 +45,33 @@ else
 
     <p>Current horizon: <strong>@_currentStart.ToString("MMM yyyy") – @_currentEnd.ToString("MMM yyyy")</strong>
         (@WmsResourcePlanner.Application.Services.HorizonService.MonthSpan(_currentStart, _currentEnd) months)</p>
+
+    <hr />
+
+    <h2 style="color:#b32121">Danger Zone</h2>
+    <p>
+        Permanently deletes all Teams, People, Roles, Templates, Template Phases, Workstreams, Focus Areas,
+        Sites, Resource Pools, Team/Template/Site assignments, Resource Plan Lines, Planning Scenarios, and
+        Audit History for this program, leaving a fresh, empty database (a new blank "Baseline" scenario is
+        created automatically since the app requires one). The Program itself and its planning horizon are
+        kept. This cannot be undone - consider taking a <a href="/backup">backup</a> first.
+    </p>
+
+    <div class="toolbar">
+        <label>Type <strong>DELETE ALL DATA</strong> to confirm:
+            <input type="text" @bind="_clearConfirmText" @bind:event="oninput" style="width:220px" />
+        </label>
+        <button class="btn" style="background:#b32121;border-color:#b32121"
+                disabled="@(_clearConfirmText != "DELETE ALL DATA" || _clearing)"
+                @onclick="ClearAllDataAsync">
+            @(_clearing ? "Clearing..." : "Clear All Data")
+        </button>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_clearStatus))
+    {
+        <p class="save-status">@_clearStatus</p>
+    }
 }
 
 @code {
@@ -53,6 +83,9 @@ else
     private DateOnly _currentEnd;
     private string? _error;
     private string _status = string.Empty;
+    private string _clearConfirmText = string.Empty;
+    private bool _clearing;
+    private string _clearStatus = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
@@ -102,5 +135,25 @@ else
         _startMonthText = start.ToString("yyyy-MM");
         _months = WmsResourcePlanner.Application.Services.HorizonService.MonthSpan(start, end);
         _status = $"Reset to default at {DateTime.Now:T}.";
+    }
+
+    private async Task ClearAllDataAsync()
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm",
+            "This will permanently delete ALL planning data (Teams, People, Templates, Resource Plan Lines, etc.) for this program. This cannot be undone. Continue?");
+        if (!confirmed) return;
+
+        _clearing = true;
+        StateHasChanged();
+
+        await DataResetService.ClearAllDataAsync();
+
+        _clearing = false;
+        _clearConfirmText = string.Empty;
+        _clearStatus = $"All data cleared at {DateTime.Now:T}. Redirecting...";
+        StateHasChanged();
+
+        await Task.Delay(1000);
+        Nav.NavigateTo("/", forceLoad: true);
     }
 }
