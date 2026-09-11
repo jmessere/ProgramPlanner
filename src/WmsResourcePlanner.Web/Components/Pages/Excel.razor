@@ -34,7 +34,10 @@ Templates named in the sheet that don't already exist are resolved/created autom
 If the workbook also has a "Reference Data" sheet, its People, Teams, Roles, Templates, Workstreams,
 Focus Areas, Sites, and Resource Pools tables are imported directly too - so adding a new Resource Pool
 row there (with Cost Center, Average Rate, Vendor, Notes) and re-importing updates that pool's full
-details, not just its name.</p>
+details, not just its name.
+The Template Plan table is treated as the master/full state of your templates and phases: any
+Template or Phase that exists in the app but is no longer listed in the workbook is removed on
+import (its Resource Plan rows are kept, just unlinked from that phase/template).</p>
 
 <InputFile OnChange="OnFileSelectedAsync" accept=".xlsx" />
 @if (_parseError is not null)
@@ -245,14 +248,18 @@ details, not just its name.</p>
             ? await ImportService.CommitReferenceDataAsync(_programId, _referenceData)
             : null;
         var count = await ImportService.CommitAsync(_programId, _importScenarioId, _parsedRows);
-        var templatePlanCount = _templatePlanRows.Count > 0
+        var templatePlanResult = _templatePlanRows.Count > 0
             ? await ImportService.CommitTemplatePlanAsync(_programId, _templatePlanRows)
-            : 0;
+            : null;
         _committing = false;
 
         var parts = new List<string> { $"{count} resource plan row(s)" };
-        if (templatePlanCount > 0) parts.Add($"{templatePlanCount} template phase(s)");
+        if (templatePlanResult is not null && templatePlanResult.PhasesCommitted > 0) parts.Add($"{templatePlanResult.PhasesCommitted} template phase(s)");
         if (refResult is not null && refResult.TotalProcessed > 0) parts.Add($"{refResult.TotalProcessed} reference data row(s)");
+        if (templatePlanResult is not null && (templatePlanResult.TemplatesRemoved > 0 || templatePlanResult.PhasesRemoved > 0))
+        {
+            parts.Add($"removed {templatePlanResult.TemplatesRemoved} template(s) and {templatePlanResult.PhasesRemoved} phase(s) no longer in the workbook");
+        }
         _commitStatus = $"Imported {string.Join(", ", parts)} at {DateTime.Now:T}.";
 
         // Refresh preview flags (entities just created are no longer "new").

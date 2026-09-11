@@ -2036,6 +2036,23 @@ re-importing adjusts the underlying Template Phase accordingly. A row with
 no "X" marks at all is flagged as an error (a phase must have at least one
 active month marked).
 
+The workbook is the master/full state of the Template Plan: after
+committing the rows present in the sheet, any Template or Phase that
+already exists in the program but is no longer named anywhere in the
+parsed rows is deleted, so removing a row (or an entire Template's rows)
+from the sheet and re-importing removes it from the app too. This is
+strictly name-based - it does not require every row to be error-free;
+only rows with a blank Template or Phase name are excluded from the
+"still present" set, so a row with a transient "At least one month must be
+marked with X" error still protects its Template/Phase from being deleted
+(only its date range fails to update that import). Deleting a Template
+cascades to its Phases and TeamTemplateAssignments; deleting either a
+Template or a Phase only clears (sets to null) the corresponding
+TemplatePhaseId/TeamTemplateAssignmentId on any ResourcePlanLine that
+referenced it - the line's Team/Role/Person/FTE data is preserved, it
+simply becomes unlinked from that phase/template rather than being
+deleted itself.
+
 Month-header detection on import is deliberately resilient to a real-world
 ClosedXML/Excel round-trip quirk: after a workbook has been saved and
 reopened (including a plain ClosedXML `SaveAs`, not just a real Excel

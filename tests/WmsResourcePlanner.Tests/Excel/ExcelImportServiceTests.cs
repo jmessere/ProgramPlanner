@@ -1,4 +1,5 @@
 using WmsResourcePlanner.Application.Calculations;
+using WmsResourcePlanner.Application.DTOs;
 using WmsResourcePlanner.Application.Services;
 using WmsResourcePlanner.Domain.Entities;
 using WmsResourcePlanner.Infrastructure.Excel;
@@ -130,8 +131,8 @@ public class ExcelImportServiceTests
 
         var lookup = new LookupService(db);
         var importService = new ImportService(db, lookup, new ResourceTransformationService());
-        var count = await importService.CommitTemplatePlanAsync(program.Id, parsedRows);
-        Assert.Equal(1, count);
+        var commitResult = await importService.CommitTemplatePlanAsync(program.Id, parsedRows);
+        Assert.Equal(1, commitResult.PhasesCommitted);
 
         var updated = db.TemplatePhases.Single(p => p.Id == phase.Id);
         Assert.Equal(new DateOnly(2027, 2, 1), updated.StartDate);
@@ -140,6 +141,86 @@ public class ExcelImportServiceTests
         // No duplicate Template/Phase created.
         Assert.Single(db.Templates.ToList());
         Assert.Single(db.TemplatePhases.ToList());
+    }
+
+    [Fact]
+    public async Task CommitTemplatePlanAsync_RemovesTemplatesAndPhasesNoLongerInWorkbook()
+    {
+        // The Template Plan table on the workbook is the master/full state:
+        // any Template or Phase that already exists in the program but is
+        // no longer named in the parsed rows must be deleted, while
+        // ResourcePlanLines that referenced the removed phase/template are
+        // preserved (just unlinked, per the SetNull FK behavior).
+        using var db = TestDbFactory.Create();
+
+        var program = new Program { Name = "P" };
+        db.Programs.Add(program);
+        await db.SaveChangesAsync();
+
+        var scenario = new PlanningScenario { ProgramId = program.Id, Name = "Baseline", IsBaseline = true };
+        db.PlanningScenarios.Add(scenario);
+        var team = new Team { ProgramId = program.Id, Name = "Team A" };
+        var role = new Role { ProgramId = program.Id, Name = "BA" };
+        db.Teams.Add(team);
+        db.Roles.Add(role);
+
+        var templateA = new Template { ProgramId = program.Id, Name = "Template A", Status = TemplateStatus.Active };
+        var templateB = new Template { ProgramId = program.Id, Name = "Template B", Status = TemplateStatus.Active };
+        db.Templates.Add(templateA);
+        db.Templates.Add(templateB);
+        await db.SaveChangesAsync();
+
+        var designPhaseA = new TemplatePhase { TemplateId = templateA.Id, Name = "Design", SortOrder = 1, StartDate = new DateOnly(2027, 1, 1), EndDate = new DateOnly(2027, 2, 28) };
+        var buildPhaseA = new TemplatePhase { TemplateId = templateA.Id, Name = "Build", SortOrder = 2, StartDate = new DateOnly(2027, 3, 1), EndDate = new DateOnly(2027, 4, 30) };
+        var designPhaseB = new TemplatePhase { TemplateId = templateB.Id, Name = "Design", SortOrder = 1, StartDate = new DateOnly(2027, 1, 1), EndDate = new DateOnly(2027, 3, 31) };
+        db.TemplatePhases.AddRange(designPhaseA, buildPhaseA, designPhaseB);
+        await db.SaveChangesAsync();
+
+        var assignmentB = new TeamTemplateAssignment { TeamId = team.Id, TemplateId = templateB.Id, StartDate = new DateOnly(2027, 1, 1), EndDate = new DateOnly(2027, 12, 31) };
+        db.TeamTemplateAssignments.Add(assignmentB);
+        await db.SaveChangesAsync();
+
+        var lineOnTemplateB = new ResourcePlanLine
+        {
+            ProgramId = program.Id, ScenarioId = scenario.Id, TeamId = team.Id, RoleId = role.Id,
+            TeamTemplateAssignmentId = assignmentB.Id, TemplatePhaseId = designPhaseB.Id,
+            StartDate = new DateOnly(2027, 1, 1), EndDate = new DateOnly(2027, 3, 31), Fte = 1.0m
+        };
+        db.ResourcePlanLines.Add(lineOnTemplateB);
+        await db.SaveChangesAsync();
+        var lineId = lineOnTemplateB.Id;
+
+        // Workbook only still lists Template A's Design phase - Template A's
+        // Build phase and all of Template B are gone from the sheet.
+        var rows = new List<TemplatePlanImportRow>
+        {
+            new()
+            {
+                RowNumber = 3, TemplateName = "Template A", PhaseName = "Design",
+                StartDate = new DateOnly(2027, 1, 1), EndDate = new DateOnly(2027, 2, 28)
+            }
+        };
+
+        var lookup = new LookupService(db);
+        var importService = new ImportService(db, lookup, new ResourceTransformationService());
+        var result = await importService.CommitTemplatePlanAsync(program.Id, rows);
+
+        Assert.Equal(1, result.PhasesCommitted);
+        Assert.Equal(1, result.TemplatesRemoved); // Template B
+        Assert.Equal(1, result.PhasesRemoved); // Template A's Build phase
+
+        Assert.Single(db.Templates.ToList());
+        Assert.Equal("Template A", db.Templates.Single().Name);
+        Assert.Single(db.TemplatePhases.ToList());
+        Assert.Equal("Design", db.TemplatePhases.Single().Name);
+
+        // The line that pointed at the now-deleted Template B phase/assignment
+        // survives, just unlinked from that phase/template.
+        var survivingLine = db.ResourcePlanLines.Single(l => l.Id == lineId);
+        Assert.Null(survivingLine.TemplatePhaseId);
+        Assert.Null(survivingLine.TeamTemplateAssignmentId);
+        Assert.Equal(team.Id, survivingLine.TeamId);
+        Assert.Equal(role.Id, survivingLine.RoleId);
     }
 
     [Fact]

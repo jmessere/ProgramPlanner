@@ -201,10 +201,23 @@ public class ImportService
     /// This is what makes the "X" re-import workflow adjust dates: the
     /// parser has already derived StartDate/EndDate from the marked
     /// months, so this method just persists whatever it's given.
+    ///
+    /// The workbook is treated as the master/full state of the Template
+    /// Plan: after committing the rows present, any Template or
+    /// TemplatePhase that already exists in this program but is no longer
+    /// named anywhere in the parsed rows is deleted. Deleting a
+    /// TemplatePhase/Template only clears (SetNull) the corresponding
+    /// TemplatePhaseId/TeamTemplateAssignmentId on any ResourcePlanLine
+    /// that referenced it - the underlying Team/Role/Person/FTE data on
+    /// those lines is preserved, only the phase/template linkage is
+    /// dropped. Rows with parse errors still count toward "kept" (a
+    /// transient X-mark error shouldn't cause an otherwise-known
+    /// Template/Phase to be deleted) - only rows with a blank
+    /// Template/Phase name are excluded from the kept set.
     /// </summary>
-    public async Task<int> CommitTemplatePlanAsync(int programId, List<TemplatePlanImportRow> rows, CancellationToken ct = default)
+    public async Task<TemplatePlanCommitResult> CommitTemplatePlanAsync(int programId, List<TemplatePlanImportRow> rows, CancellationToken ct = default)
     {
-        var committed = 0;
+        var result = new TemplatePlanCommitResult();
 
         foreach (var row in rows.Where(r => r.Errors.Count == 0 && r.StartDate is not null && r.EndDate is not null))
         {
@@ -239,10 +252,52 @@ public class ImportService
             }
 
             await _db.SaveChangesAsync(ct);
-            committed++;
+            result.PhasesCommitted++;
         }
 
-        return committed;
+        var keptTemplateNames = rows
+            .Where(r => !string.IsNullOrWhiteSpace(r.TemplateName))
+            .Select(r => r.TemplateName.Trim().ToLowerInvariant())
+            .ToHashSet();
+        var keptPhaseKeys = rows
+            .Where(r => !string.IsNullOrWhiteSpace(r.TemplateName) && !string.IsNullOrWhiteSpace(r.PhaseName))
+            .Select(r => (Template: r.TemplateName.Trim().ToLowerInvariant(), Phase: r.PhaseName.Trim().ToLowerInvariant()))
+            .ToHashSet();
+
+        var existingTemplates = await _db.Templates
+            .Where(t => t.ProgramId == programId)
+            .Include(t => t.Phases)
+            .ToListAsync(ct);
+
+        foreach (var template in existingTemplates)
+        {
+            var templateNameLower = template.Name.Trim().ToLowerInvariant();
+            if (!keptTemplateNames.Contains(templateNameLower))
+            {
+                // Template no longer named anywhere in the workbook - remove
+                // it entirely (cascades to its Phases and TeamTemplateAssignments).
+                _db.Templates.Remove(template);
+                result.TemplatesRemoved++;
+                continue;
+            }
+
+            foreach (var phase in template.Phases.ToList())
+            {
+                var key = (templateNameLower, phase.Name.Trim().ToLowerInvariant());
+                if (!keptPhaseKeys.Contains(key))
+                {
+                    _db.TemplatePhases.Remove(phase);
+                    result.PhasesRemoved++;
+                }
+            }
+        }
+
+        if (result.TemplatesRemoved > 0 || result.PhasesRemoved > 0)
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+
+        return result;
     }
 
     /// <summary>

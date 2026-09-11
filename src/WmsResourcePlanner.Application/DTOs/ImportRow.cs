@@ -71,3 +71,17 @@ public class TemplatePlanImportRow
     public string? Notes { get; set; }
     public List<string> Errors { get; set; } = new();
 }
+
+/// <summary>
+/// Summary counts returned by ImportService.CommitTemplatePlanAsync: the
+/// workbook is treated as the master/full state of the Template Plan, so
+/// besides committing the rows present, Templates/TemplatePhases that
+/// exist in the program but are no longer named anywhere in the workbook
+/// are removed.
+/// </summary>
+public class TemplatePlanCommitResult
+{
+    public int PhasesCommitted { get; set; }
+    public int TemplatesRemoved { get; set; }
+    public int PhasesRemoved { get; set; }
+}
