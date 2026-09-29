@@ -22,6 +22,8 @@ public class BackupService
         Directory.CreateDirectory(_backupDir);
     }
 
+    public string GetBackupPath => _backupDir;
+
     public List<(string FileName, DateTime CreatedUtc, long SizeBytes)> ListBackups()
     {
         return Directory.GetFiles(_backupDir, "*.db")
