@@ -53,6 +53,8 @@ public class ExcelExportService
         var pools = await _db.ResourcePools.OrderBy(p => p.Name).ToListAsync(ct);
 
         using var workbook = new XLWorkbook();
+        workbook.Outline.SummaryVLocation = XLOutlineSummaryVLocation.Top;
+        workbook.Outline.SummaryHLocation = XLOutlineSummaryHLocation.Left;
 
         BuildInstructionsSheet(workbook);
         var refCols = await BuildReferenceDataSheetAsync(workbook, pools, ct);
@@ -458,6 +460,8 @@ public class ExcelExportService
             ws.Cell(row, 4).FormulaA1 = $"=B{row}+C{row}";
             row++;
         }
+        ws.Rows(1, row - 1).Group();
+        ws.Rows(1, row - 1).Collapse();
 
         // Helper "Row Total FTE" column at the end of the Resource Plan
         // sheet: one formula per data row summing that row's months, so the
@@ -475,6 +479,7 @@ public class ExcelExportService
         var rowTotalRange = RpRange(rowTotalCol);
 
         row += 2;
+        var startRow = row+1;
         ws.Cell(row, 1).Value = "Open FTE by Role (current)";
         ws.Cell(row, 1).Style.Font.SetBold();
         row++;
@@ -484,8 +489,11 @@ public class ExcelExportService
             ws.Cell(row, 2).FormulaA1 = $"=SUMIFS({rowTotalRange},{RpRange(RpRoleCol)},A{row},{personRange},\"\")";
             row++;
         }
+        ws.Rows(startRow, row - 1).Group();
+        ws.Rows(startRow, row - 1).Collapse();
 
         row += 1;
+        startRow = row+1;
         ws.Cell(row, 1).Value = "Open FTE by Team (current)";
         ws.Cell(row, 1).Style.Font.SetBold();
         row++;
@@ -495,6 +503,8 @@ public class ExcelExportService
             ws.Cell(row, 2).FormulaA1 = $"=SUMIFS({rowTotalRange},{RpRange(RpTeamCol)},A{row},{personRange},\"\")";
             row++;
         }
+        ws.Rows(startRow, row - 1).Group();
+        ws.Rows(startRow, row - 1).Collapse();
 
         row += 2;
         BuildPoolAndVendorSections(ws, rpWs, ref row, months, lines, pools, refCols, rpLayout.HeaderRow, rpLayout.FirstDataRow, rpLastRow, ColLetter, RpRange, personRange);
@@ -735,55 +745,163 @@ public class ExcelExportService
             return "=" + string.Join("+", members.Select(pi => poolAddrs[pi, periodIdx]));
         }
 
-        var yearLabels = years.Select(y => y.ToString()).ToList();
+        int StartGroupRow(int currentRow)
+        {
+            return currentRow + 1;
+        }
 
+        int EndGroupRow(int currentRow)
+        {
+            return currentRow - 1;
+        }
+
+        var yearLabels = years.Select(y => y.ToString()).ToList();
+        var startGroupRow = row;
+        var startAllocRow = row;
+        var endAllocRow = row;
+        var startDemandRow = row;
+        var endDemandRow = row;
+        var startBothRow = row;
+        var endBothRow = row;
+
+
+        startGroupRow = StartGroupRow(row);
         SectionTitle("Pool Summary - Cost by Quarter");
+        startAllocRow = startGroupRow + 1;
         SubTitle("Allocated Only");
         var poolCostQAllocated = WriteMatrix(poolNames, "Pool", quarterLabels, (i, j, r) => PoolQuarterFormula(QCostRange(j), r, "Allocated"), "$#,##0");
+        endAllocRow = row - 2;
+        startDemandRow = row + 1;
         SubTitle("Demand Only");
         var poolCostQDemand = WriteMatrix(poolNames, "Pool", quarterLabels, (i, j, r) => PoolQuarterFormula(QCostRange(j), r, "Demand"), "$#,##0");
+        endDemandRow = row - 2;
+        startBothRow = row + 1;
         SubTitle("Both (Allocated + Demand)");
         var poolCostQBoth = WriteMatrix(poolNames, "Pool", quarterLabels, (i, j, r) => PoolQuarterFormula(QCostRange(j), r, "Both"), "$#,##0");
+        endBothRow = row - 2;
+        ws.Rows(startGroupRow, EndGroupRow(row)).Group();
+        ws.Rows(startAllocRow, endAllocRow).Group();
+        ws.Rows(startDemandRow, endDemandRow).Group();
+        ws.Rows(startBothRow, endBothRow).Group();
+        ws.Rows(startAllocRow, endAllocRow).Collapse();
+        ws.Rows(startDemandRow, endDemandRow).Collapse();
+        ws.Rows(startBothRow, endBothRow).Collapse();
+        ws.Rows(startGroupRow, EndGroupRow(row)).Collapse();
 
+        startGroupRow = StartGroupRow(row);
         SectionTitle("Pool Summary - Cost by Year");
+        startAllocRow = startGroupRow + 1;
         SubTitle("Allocated Only");
         var poolCostYAllocated = WriteMatrix(poolNames, "Pool", yearLabels, (i, j, r) => PoolYearFormula(QCostRange, r, j, "Allocated", average: false), "$#,##0");
+        endAllocRow = row - 2;
+        startDemandRow = row + 1;
         SubTitle("Demand Only");
         var poolCostYDemand = WriteMatrix(poolNames, "Pool", yearLabels, (i, j, r) => PoolYearFormula(QCostRange, r, j, "Demand", average: false), "$#,##0");
+        endDemandRow = row - 2;
+        startBothRow = row + 1;
         SubTitle("Both (Allocated + Demand)");
         var poolCostYBoth = WriteMatrix(poolNames, "Pool", yearLabels, (i, j, r) => PoolYearFormula(QCostRange, r, j, "Both", average: false), "$#,##0");
+        endBothRow = row - 2;
+        ws.Rows(startGroupRow, EndGroupRow(row)).Group();
+        ws.Rows(startAllocRow, endAllocRow).Group();
+        ws.Rows(startDemandRow, endDemandRow).Group();
+        ws.Rows(startBothRow, endBothRow).Group();
+        ws.Rows(startAllocRow, endAllocRow).Collapse();
+        ws.Rows(startDemandRow, endDemandRow).Collapse();
+        ws.Rows(startBothRow, endBothRow).Collapse();
+        ws.Rows(startGroupRow, EndGroupRow(row)).Collapse();
 
+        startGroupRow = StartGroupRow(row);
         SectionTitle("Pool Summary - Count by Quarter");
+        startAllocRow = startGroupRow + 1;
         SubTitle("Allocated Only");
         WriteMatrix(poolNames, "Pool", quarterLabels, (i, j, r) => PoolQuarterFormula(QCountRange(j), r, "Allocated"), "0.00");
+        endAllocRow = row - 2;
+        startDemandRow = row + 1;
         SubTitle("Demand Only");
         WriteMatrix(poolNames, "Pool", quarterLabels, (i, j, r) => PoolQuarterFormula(QCountRange(j), r, "Demand"), "0.00");
+        endDemandRow = row - 2;
+        startBothRow = row + 1;
         SubTitle("Both (Allocated + Demand)");
         WriteMatrix(poolNames, "Pool", quarterLabels, (i, j, r) => PoolQuarterFormula(QCountRange(j), r, "Both"), "0.00");
+        endBothRow = row - 2;
+        ws.Rows(startGroupRow, EndGroupRow(row)).Group();
+        ws.Rows(startAllocRow, endAllocRow).Group();
+        ws.Rows(startDemandRow, endDemandRow).Group();
+        ws.Rows(startBothRow, endBothRow).Group();
+        ws.Rows(startAllocRow, endAllocRow).Collapse();
+        ws.Rows(startDemandRow, endDemandRow).Collapse();
+        ws.Rows(startBothRow, endBothRow).Collapse();
+        ws.Rows(startGroupRow, EndGroupRow(row)).Collapse();
 
+        startGroupRow = StartGroupRow(row);
         SectionTitle("Pool Summary - Count by Year");
+        startAllocRow = startGroupRow + 1;
         SubTitle("Allocated Only");
         WriteMatrix(poolNames, "Pool", yearLabels, (i, j, r) => PoolYearFormula(QCountRange, r, j, "Allocated", average: true), "0.00");
+        endAllocRow = row - 2;
+        startDemandRow = row + 1;
         SubTitle("Demand Only");
         WriteMatrix(poolNames, "Pool", yearLabels, (i, j, r) => PoolYearFormula(QCountRange, r, j, "Demand", average: true), "0.00");
+        endDemandRow = row - 2;
+        startBothRow = row + 1;
         SubTitle("Both (Allocated + Demand)");
         WriteMatrix(poolNames, "Pool", yearLabels, (i, j, r) => PoolYearFormula(QCountRange, r, j, "Both", average: true), "0.00");
+        endBothRow = row - 2;
+        ws.Rows(startGroupRow, EndGroupRow(row)).Group();
+        ws.Rows(startAllocRow, endAllocRow).Group();
+        ws.Rows(startDemandRow, endDemandRow).Group();
+        ws.Rows(startBothRow, endBothRow).Group();
+        ws.Rows(startAllocRow, endAllocRow).Collapse();
+        ws.Rows(startDemandRow, endDemandRow).Collapse();
+        ws.Rows(startBothRow, endBothRow).Collapse();
+        ws.Rows(startGroupRow, EndGroupRow(row)).Collapse();
 
+        startGroupRow = StartGroupRow(row);
         SectionTitle("Vendor Summary - Cost by Quarter");
+        startAllocRow = startGroupRow + 1;
         SubTitle("Allocated Only");
         WriteMatrix(vendorNames, "Vendor", quarterLabels, (i, j, r) => VendorFormulaFromPool(poolCostQAllocated, i, j), "$#,##0");
+        endAllocRow = row - 2;
+        startDemandRow = row + 1;
         SubTitle("Demand Only");
         WriteMatrix(vendorNames, "Vendor", quarterLabels, (i, j, r) => VendorFormulaFromPool(poolCostQDemand, i, j), "$#,##0");
+        endDemandRow = row - 2;
+        startBothRow = row + 1;
         SubTitle("Both (Allocated + Demand)");
         WriteMatrix(vendorNames, "Vendor", quarterLabels, (i, j, r) => VendorFormulaFromPool(poolCostQBoth, i, j), "$#,##0");
+        endBothRow = row - 2;
+        ws.Rows(startGroupRow, EndGroupRow(row)).Group();
+        ws.Rows(startAllocRow, endAllocRow).Group();
+        ws.Rows(startDemandRow, endDemandRow).Group();
+        ws.Rows(startBothRow, endBothRow).Group();
+        ws.Rows(startAllocRow, endAllocRow).Collapse();
+        ws.Rows(startDemandRow, endDemandRow).Collapse();
+        ws.Rows(startBothRow, endBothRow).Collapse();
+        ws.Rows(startGroupRow, EndGroupRow(row)).Collapse();
 
+        startGroupRow = StartGroupRow(row);
         SectionTitle("Vendor Summary - Cost by Year");
+        startAllocRow = startGroupRow + 1;
         SubTitle("Allocated Only");
         WriteMatrix(vendorNames, "Vendor", yearLabels, (i, j, r) => VendorFormulaFromPool(poolCostYAllocated, i, j), "$#,##0");
+        endAllocRow = row - 2;
+        startDemandRow = row + 1;
         SubTitle("Demand Only");
         WriteMatrix(vendorNames, "Vendor", yearLabels, (i, j, r) => VendorFormulaFromPool(poolCostYDemand, i, j), "$#,##0");
+        endDemandRow = row - 2;
+        startBothRow = row + 1;
         SubTitle("Both (Allocated + Demand)");
         WriteMatrix(vendorNames, "Vendor", yearLabels, (i, j, r) => VendorFormulaFromPool(poolCostYBoth, i, j), "$#,##0");
+        endBothRow = row - 2;
+        ws.Rows(startGroupRow, EndGroupRow(row)).Group();
+        ws.Rows(startAllocRow, endAllocRow).Group();
+        ws.Rows(startDemandRow, endDemandRow).Group();
+        ws.Rows(startBothRow, endBothRow).Group();
+        ws.Rows(startAllocRow, endAllocRow).Collapse();
+        ws.Rows(startDemandRow, endDemandRow).Collapse();
+        ws.Rows(startBothRow, endBothRow).Collapse();
+        ws.Rows(startGroupRow, EndGroupRow(row)).Collapse();
 
         rowRef = row;
     }
