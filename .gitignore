@@ -62,3 +62,7 @@ nunit-*.xml
 
 .vs/
 /src/WmsResourcePlanner.Web/App_Data/Backups
+/src/WmsResourcePlanner.Web/Properties/PublishProfiles/FolderProfile1.pubxml.user
+/src/WmsResourcePlanner.Web/Properties/PublishProfiles/FolderProfile.pubxml.user
+/src/WmsResourcePlanner.Web/WmsResourcePlanner.Web.csproj.user
+*.user
