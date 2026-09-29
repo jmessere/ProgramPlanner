@@ -16,6 +16,7 @@
 - When doing excel import/export these actions should show in the audit log
 - Taking DB backup should show in the audit log
 - When recording audit log events capture the environments user name as well as machine name and show in the logs for who performed the action
+- Log application startup and who launched it
 
 ## Resource Gantt
 - Add checkbox that allows us to show over allocated only
